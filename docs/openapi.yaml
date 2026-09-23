@@ -1,0 +1,1274 @@
+openapi: 3.1.0
+info:
+  title: OpenLess Encrypted Cloud Sync API
+  version: 1.0-draft.1
+  description: 待实现接口合同。仅存储端到端加密快照；并非已部署服务。行为约束见 http-api.md，AAD 与密码学见 encryption-protocol.md。
+servers:
+- url: https://sync.openless.example
+  description: 保留示例域名，不是生产地址
+security:
+- SyncBearer: []
+paths:
+  /v1/capabilities:
+    get:
+      operationId: getCapabilities
+      summary: 读取协议能力，不含用户数据
+      security: []
+      responses:
+        '200':
+          description: 固定协议能力
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Capabilities'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/auth/github:
+    post:
+      operationId: exchangeGithubToken
+      summary: 核验专用 GitHub OAuth 令牌并换取短期同步令牌
+      security:
+      - GithubBearer: []
+      responses:
+        '200':
+          description: 身份已核验；同步令牌最长 15 分钟
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSession'
+        '400':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/auth/session:
+    delete:
+      operationId: revokeSyncSession
+      summary: 注销当前同步令牌
+      responses:
+        '204':
+          description: 当前令牌已撤销，无响应体
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/me/vault:
+    get:
+      operationId: getVaultMetadata
+      summary: 读取当前账号元信息，空库也返回 200
+      parameters:
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          $ref: '#/components/schemas/StrongETag'
+      responses:
+        '200':
+          description: 当前元信息及强 ETag
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            ETag:
+              description: 必须返回，客户端按原样保存的强实体标签。
+              schema:
+                $ref: '#/components/schemas/StrongETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VaultMetadata'
+        '304':
+          description: 与该 ETag 一致，无响应体；保留本地已缓存的同账号元信息
+          headers:
+            ETag:
+              schema:
+                $ref: '#/components/schemas/StrongETag'
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+        '400':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    delete:
+      operationId: deleteVault
+      summary: 按版本删除密文并保留墓碑，防止旧设备自动复活
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        description: 最近元信息的强 ETag，不允许通配符或弱标签。
+        schema:
+          $ref: '#/components/schemas/StrongETag'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: 与 body.operationId 相同，重试必须复用原值与请求字节。
+        schema:
+          $ref: '#/components/schemas/UuidV4'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteVaultRequest'
+      responses:
+        '200':
+          description: 删除回执；重复请求重放原回执
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Idempotency-Replayed:
+              description: 必须返回；true 表示原操作的回执重放，不能假定它仍是最新头。
+              schema:
+                type: string
+                enum:
+                - 'true'
+                - 'false'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationReceipt'
+        '400':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '412':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '415':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '428':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/me/vault/snapshot:
+    get:
+      operationId: downloadSnapshot
+      summary: 下载与元信息 ETag 绑定的完整密文
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        description: 最近元信息的强 ETag，不允许通配符或弱标签。
+        schema:
+          $ref: '#/components/schemas/StrongETag'
+      responses:
+        '200':
+          description: 该版本原始加密头和密文
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            ETag:
+              description: 必须返回，客户端按原样保存的强实体标签。
+              schema:
+                $ref: '#/components/schemas/StrongETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotUpload'
+        '400':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '412':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '428':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+    put:
+      operationId: uploadSnapshot
+      summary: 创建、更新或改密码；前置版本与幂等回执原子提交
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        description: 最近元信息的强 ETag，不允许通配符或弱标签。
+        schema:
+          $ref: '#/components/schemas/StrongETag'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        description: 与 body.operationId 相同，重试必须复用原值与请求字节。
+        schema:
+          $ref: '#/components/schemas/UuidV4'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SnapshotUpload'
+      responses:
+        '200':
+          description: 成功回执，不回传密文；回执不保证仍为最新头
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Idempotency-Replayed:
+              description: 必须返回；true 表示原操作的回执重放，不能假定它仍是最新头。
+              schema:
+                type: string
+                enum:
+                - 'true'
+                - 'false'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationReceipt'
+        '400':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '403':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '412':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '415':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '428':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/me/operations/{operationId}:
+    get:
+      operationId: getOperationReceipt
+      summary: 核对当前账号的写入结果，404 不证明原请求一定失败
+      parameters:
+      - name: operationId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV4'
+      responses:
+        '200':
+          description: 原操作提交回执
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationReceipt'
+        '202':
+          description: 操作仍在处理中；保留状态，下一次有效同步事件再处理
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationPending'
+        '400':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Retry-After:
+              description: 必须返回秒数；只阻止提前重试，不要求客户端启动轮询。
+              schema:
+                type: integer
+                minimum: 1
+                maximum: 86400
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '503':
+          description: 结构化错误；按 code 处理，不能据 message 推断是否可覆盖数据。
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  securitySchemes:
+    GithubBearer:
+      type: http
+      scheme: bearer
+      description: 仅 /v1/auth/github 使用；必须属于已配置的云同步 GitHub OAuth 应用。
+    SyncBearer:
+      type: http
+      scheme: bearer
+      description: 本服务签发、账号限定、最长 15 分钟的同步访问令牌。
+  schemas:
+    UuidV4:
+      type: string
+      format: uuid
+      pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    Revision:
+      type: string
+      pattern: ^(0|[1-9][0-9]{0,19})$
+      description: 规范 uint64 十进制字符串；还须数值校验不超过 18446744073709551615。
+    PositiveRevision:
+      type: string
+      pattern: ^[1-9][0-9]{0,19}$
+      description: 正 uint64 十进制字符串；不可按浮点数处理。
+    GithubId:
+      type: string
+      pattern: ^[1-9][0-9]{0,19}$
+      description: 正 uint64 十进制字符串；不可按浮点数处理。
+    Sha256:
+      type: string
+      pattern: ^[0-9a-f]{64}$
+    StrongETag:
+      type: string
+      pattern: ^"[!#-~]{1,128}"$
+      description: 包含双引号的强实体标签；客户端必须当成不透明字符串。
+    Capabilities:
+      type: object
+      additionalProperties: false
+      required:
+      - protocolVersion
+      - cryptoProfile
+      - githubClientId
+      - maxHttpBodyBytes
+      - maxCiphertextBytes
+      - maxPlaintextJsonBytes
+      - idempotencyRetentionSeconds
+      - maxBackupRetentionDays
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        cryptoProfile:
+          type: string
+          const: argon2id-xchacha20poly1305-v1
+        githubClientId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        maxHttpBodyBytes:
+          type: integer
+          const: 25165824
+        maxCiphertextBytes:
+          type: integer
+          const: 16777232
+        maxPlaintextJsonBytes:
+          type: integer
+          const: 15728640
+        idempotencyRetentionSeconds:
+          type: integer
+          minimum: 604800
+        maxBackupRetentionDays:
+          type: integer
+          minimum: 0
+          maximum: 30
+    AuthSession:
+      type: object
+      additionalProperties: false
+      required:
+      - protocolVersion
+      - accessToken
+      - tokenType
+      - expiresIn
+      - account
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        accessToken:
+          type: string
+          minLength: 43
+          maxLength: 2048
+          description: 短期同步令牌，仅留在原生安全层，不返回 React，不入快照或日志。
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          minimum: 1
+          maximum: 900
+        account:
+          type: object
+          additionalProperties: false
+          required:
+          - githubId
+          - login
+          properties:
+            githubId:
+              $ref: '#/components/schemas/GithubId'
+            login:
+              type: string
+              minLength: 1
+              maxLength: 100
+    VaultMetadata:
+      type: object
+      additionalProperties: false
+      required:
+      - protocolVersion
+      - state
+      - ownerGithubId
+      - revision
+      - vaultId
+      - keyId
+      - updatedAt
+      - payloadSchemaVersion
+      - ciphertextBytes
+      - ciphertextSha256
+      - lastOperationId
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        state:
+          type: string
+          enum:
+          - empty
+          - active
+          - deleted
+        ownerGithubId:
+          $ref: '#/components/schemas/GithubId'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        vaultId:
+          oneOf:
+          - $ref: '#/components/schemas/UuidV4'
+          - type: 'null'
+        keyId:
+          oneOf:
+          - $ref: '#/components/schemas/UuidV4'
+          - type: 'null'
+        updatedAt:
+          oneOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+        payloadSchemaVersion:
+          oneOf:
+          - type: integer
+            const: 1
+          - type: 'null'
+        ciphertextBytes:
+          type: integer
+          minimum: 0
+          maximum: 16777232
+        ciphertextSha256:
+          oneOf:
+          - $ref: '#/components/schemas/Sha256'
+          - type: 'null'
+        lastOperationId:
+          oneOf:
+          - $ref: '#/components/schemas/UuidV4'
+          - type: 'null'
+      description: 空库也返回 200；state 条件定义见 oneOf。
+      oneOf:
+      - properties:
+          state:
+            const: empty
+          revision:
+            const: '0'
+          vaultId:
+            type: 'null'
+          keyId:
+            type: 'null'
+          updatedAt:
+            type: 'null'
+          payloadSchemaVersion:
+            type: 'null'
+          ciphertextBytes:
+            const: 0
+          ciphertextSha256:
+            type: 'null'
+          lastOperationId:
+            type: 'null'
+      - properties:
+          state:
+            const: active
+          revision:
+            $ref: '#/components/schemas/PositiveRevision'
+          vaultId:
+            $ref: '#/components/schemas/UuidV4'
+          keyId:
+            $ref: '#/components/schemas/UuidV4'
+          updatedAt:
+            type: string
+            format: date-time
+          payloadSchemaVersion:
+            const: 1
+          ciphertextBytes:
+            type: integer
+            minimum: 65552
+            maximum: 16777232
+          ciphertextSha256:
+            $ref: '#/components/schemas/Sha256'
+          lastOperationId:
+            $ref: '#/components/schemas/UuidV4'
+      - properties:
+          state:
+            const: deleted
+          revision:
+            $ref: '#/components/schemas/PositiveRevision'
+          vaultId:
+            $ref: '#/components/schemas/UuidV4'
+          keyId:
+            type: 'null'
+          updatedAt:
+            type: string
+            format: date-time
+          payloadSchemaVersion:
+            type: 'null'
+          ciphertextBytes:
+            const: 0
+          ciphertextSha256:
+            type: 'null'
+          lastOperationId:
+            $ref: '#/components/schemas/UuidV4'
+    Kdf:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - version
+      - memoryKiB
+      - iterations
+      - parallelism
+      - salt
+      properties:
+        name:
+          type: string
+          const: argon2id
+        version:
+          type: integer
+          const: 19
+        memoryKiB:
+          type: integer
+          const: 65536
+        iterations:
+          type: integer
+          const: 3
+        parallelism:
+          type: integer
+          const: 4
+        salt:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{22}$
+          description: 16 字节无填充规范 base64url；必须解码后重编码核对。
+    SnapshotUpload:
+      type: object
+      additionalProperties: false
+      required:
+      - protocolVersion
+      - payloadSchemaVersion
+      - ownerGithubId
+      - vaultId
+      - keyId
+      - baseRevision
+      - revision
+      - operationId
+      - kind
+      - cryptoProfile
+      - kdf
+      - aead
+      - codec
+      - nonce
+      - ciphertextSha256
+      - ciphertext
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        payloadSchemaVersion:
+          type: integer
+          const: 1
+        ownerGithubId:
+          $ref: '#/components/schemas/GithubId'
+        vaultId:
+          $ref: '#/components/schemas/UuidV4'
+        keyId:
+          $ref: '#/components/schemas/UuidV4'
+        baseRevision:
+          $ref: '#/components/schemas/Revision'
+        revision:
+          $ref: '#/components/schemas/PositiveRevision'
+        operationId:
+          $ref: '#/components/schemas/UuidV4'
+        kind:
+          type: string
+          enum:
+          - create
+          - snapshot
+          - password_change
+        cryptoProfile:
+          type: string
+          const: argon2id-xchacha20poly1305-v1
+        kdf:
+          $ref: '#/components/schemas/Kdf'
+        aead:
+          type: string
+          const: xchacha20poly1305-ietf
+        codec:
+          type: string
+          const: json-pad64k-v1
+        nonce:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{32}$
+          description: 24 字节随机 nonce 的规范无填充 base64url。
+        ciphertextSha256:
+          $ref: '#/components/schemas/Sha256'
+        ciphertext:
+          type: string
+          pattern: ^[A-Za-z0-9_-]+$
+          minLength: 87403
+          maxLength: 22369643
+          description: combined ciphertext 的规范无填充 base64url，标签位于最后 16 字节。
+      description: revision=baseRevision+1；owner 必须匹配认证账号，哈希必须匹配 decoded ciphertext。服务端不能验证解密密码或明文。
+    DeleteVaultRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - protocolVersion
+      - baseRevision
+      - operationId
+      - expectedVaultId
+      properties:
+        protocolVersion:
+          type: integer
+          const: 1
+        baseRevision:
+          $ref: '#/components/schemas/Revision'
+        operationId:
+          $ref: '#/components/schemas/UuidV4'
+        expectedVaultId:
+          $ref: '#/components/schemas/UuidV4'
+    OperationReceipt:
+      type: object
+      additionalProperties: false
+      required:
+      - operationId
+      - status
+      - kind
+      - committedRevision
+      - committedAt
+      - vaultId
+      - ciphertextSha256
+      properties:
+        operationId:
+          $ref: '#/components/schemas/UuidV4'
+        status:
+          type: string
+          const: committed
+        kind:
+          type: string
+          enum:
+          - create
+          - snapshot
+          - password_change
+          - delete
+        committedRevision:
+          $ref: '#/components/schemas/PositiveRevision'
+        committedAt:
+          type: string
+          format: date-time
+        vaultId:
+          $ref: '#/components/schemas/UuidV4'
+        ciphertextSha256:
+          oneOf:
+          - $ref: '#/components/schemas/Sha256'
+          - type: 'null'
+      oneOf:
+      - properties:
+          kind:
+            const: delete
+          ciphertextSha256:
+            type: 'null'
+      - properties:
+          kind:
+            enum:
+            - create
+            - snapshot
+            - password_change
+          ciphertextSha256:
+            $ref: '#/components/schemas/Sha256'
+    OperationPending:
+      type: object
+      additionalProperties: false
+      required:
+      - operationId
+      - status
+      - retryAfterSeconds
+      properties:
+        operationId:
+          $ref: '#/components/schemas/UuidV4'
+        status:
+          type: string
+          const: pending
+        retryAfterSeconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+    ErrorEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+          - code
+          - message
+          - requestId
+          properties:
+            code:
+              type: string
+              enum:
+              - invalid_request
+              - unsupported_protocol
+              - invalid_crypto_header
+              - unauthenticated
+              - session_expired
+              - wrong_oauth_app
+              - owner_mismatch
+              - vault_empty
+              - vault_deleted
+              - operation_not_found
+              - idempotency_key_reused
+              - key_epoch_changed
+              - vault_exists
+              - revision_exhausted
+              - revision_conflict
+              - payload_too_large
+              - unsupported_media_type
+              - precondition_required
+              - rate_limited
+              - internal_error
+              - service_unavailable
+            message:
+              type: string
+              minLength: 1
+              maxLength: 200
+            requestId:
+              $ref: '#/components/schemas/UuidV4'
+            currentRevision:
+              $ref: '#/components/schemas/Revision'
+x-contract-files:
+- requirements.md
+- http-api.md
+- encryption-protocol.md
+- client-integration.md
