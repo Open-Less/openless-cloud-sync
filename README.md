@@ -2,7 +2,7 @@
 
 独立的加密云同步后端。客户端先用用户密码加密配置、服务 API 密钥与历史，服务器只保存密文和必要元数据。专用 GitHub OAuth App 核验身份，以 numeric ID 绑定账号；服务器不接收同步密码、不派生解密密钥。
 
-**当前：服务端 `0.1.0` 已实现并通过本地验证；服务器部署、真实 OAuth 联调及客户端接入尚未完成。** 协议版本 `1.0-draft.1`，不兼容旧 `/me/sync` 明文合同。
+**当前：服务端 `0.1.0` 已实现并通过本地及 Linux/macOS/Windows CI 验证；服务器部署、真实 OAuth 联调及客户端接入尚未完成。** 协议版本 `1.0-draft.1`，不兼容旧 `/me/sync` 明文合同。
 
 从 [文档入口](docs/index.md) 开始；[架构](docs/architecture.md)、[部署](docs/deployment.md)、[验收](docs/server-acceptance.md) 描述实现与操作。
 

@@ -1,12 +1,12 @@
 # 服务端验收与联调
 
-更新：2026-09-23。只记录本次执行范围；部署后继续逐项验证真实环境。
+更新：2026-09-25。只记录本次执行范围；部署后继续逐项验证真实环境。
 
 ## 本地已执行
 
 | 验证 | 证据与结果 |
 | --- | --- |
-| 构建 | release、fmt、Clippy 通过，依赖由锁文件固定 |
+| 构建 | 从公开 GitHub 仓库重新克隆后 release 构建通过；fmt、Clippy、16 项 Rust 测试通过，依赖由锁文件固定 |
 | 认证 | `src/auth.rs` 测试真实 HTTP 上游交互：应用凭据、固定版本、numeric ID、应用不匹配、过期、上游故障与重定向拒绝 |
 | HTTP 与隔离 | `tests/http_contract.rs`：空库、往返、版本绑定、304、改名、同名不同 ID、回执隔离、注销和过期 |
 | 写入语义 | 幂等先于 CAS、不同请求拒绝复用；旧密码代次、nonce 重用、盐变更、删除墓碑和显式重建 |
@@ -15,11 +15,13 @@
 | 密码学 | `tests/crypto_vectors.rs` 和 `scripts/interop_vectors.py`：双实现完整向量、中文/NFC/组合字符、AAD 篡改/调序、错密码、截断标签、nonce/填充长度；RFC 9106 官方向量 |
 | OpenAPI | `scripts/check_contract.py`：13 份实际响应及合同声明响应头通过 schema，包含所有库状态 |
 | 真实进程 | `scripts/smoke_local.py`：真实 TCP HTTP、丢弃响应后查回执与重试、重启持久化、注销、日志敏感值检查 |
-| TLS | `scripts/check_nginx.py`：配置校验、真实 TLS 转发、认证、413 JSON、UUID、no-store/HSTS |
+| TLS | `scripts/check_nginx.py`：配置校验、真实 TLS 转发、认证、413 JSON、UUID、no-store/HSTS，以及首页、许可证、源码和提交号入口 |
 | 灾备 | `tests/test_backup.py`：一致性备份排除会话、过期清理、在线数据不变 |
 | 依赖 | Cargo audit 对锁定依赖扫描通过；许可清单见仓库根目录 |
 
-已执行环境为 macOS arm64。Linux/Windows CI 已配置，尚无远程执行结果。固定向量证明两种密码学实现互通，不代替两台真实应用设备联调；事务故障注入不等于完成真实服务器断电或硬件故障演练。
+本机验证环境为 macOS arm64。公开提交 `04188a0b8140f0ac86e93f283eadb6200c313180` 的 [GitHub Actions 检查](https://github.com/Open-Less/openless-cloud-sync/actions/runs/36087222876) 全部通过：Linux、macOS、Windows 三平台的格式、Clippy、16 项 Rust 测试、OpenAPI 与 Python 加密互操作；Linux 额外执行正式构建、真实进程、TLS、备份与依赖扫描，最低 Rust 1.88 检查也通过。Windows 合同读取曾因默认编码失败，已明确使用 UTF-8，并由这次检查验证修复。
+
+固定向量证明服务器测试层面的跨平台、双密码学实现互通，不代替两台真实应用设备联调；事务故障注入不等于完成真实服务器断电或硬件故障演练。目标服务器尚未部署，真实 OAuth 认证尚未验收。
 
 ## 部署后的逐项顺序
 
