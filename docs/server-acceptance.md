@@ -27,6 +27,8 @@
 
 2026-09-26，北京时间；运行源码为 `40b519ae15ee5029578f377ff8baa8f25833e692`，二进制 SHA-256 为 `7afa287dbe3d1309b7804b2bc03f187fde4bebb83535beb2818e677fe7a8912a`。
 
+该运行提交的 [Linux/macOS/Windows 与最低 Rust 版本检查](https://github.com/Open-Less/openless-cloud-sync/actions/runs/36172038154) 已全部通过。
+
 | 项目 | 已确认结果 |
 | --- | --- |
 | 本机编译与测试 | Ubuntu 22.04 原生 release 构建和 16 项 Rust 测试通过；真实 HTTPS、丢响应重试、重启持久化及备份测试通过 |
