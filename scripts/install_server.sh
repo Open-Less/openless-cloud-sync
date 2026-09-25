@@ -105,8 +105,9 @@ curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1
 systemctl reload nginx
 sync_origin="https://$sync_domain"
 [[ "$sync_https_port" == 443 ]] || sync_origin="$sync_origin:$sync_https_port"
-curl --fail --silent --show-error --max-time 15 --resolve "$sync_domain:$sync_https_port:127.0.0.1" "$sync_origin/v1/capabilities" > /dev/null
-curl --fail --silent --show-error --max-time 15 --resolve "$sync_domain:$sync_https_port:127.0.0.1" "$sync_origin/source.tar.gz" -o "$sync_stage/published-source.tar.gz"
+# nginx reload returns before its master has finished binding a newly added port.
+curl --fail --silent --show-error --retry 10 --retry-connrefused --retry-delay 1 --max-time 15 --resolve "$sync_domain:$sync_https_port:127.0.0.1" "$sync_origin/v1/capabilities" > /dev/null
+curl --fail --silent --show-error --retry 3 --retry-connrefused --retry-delay 1 --max-time 15 --resolve "$sync_domain:$sync_https_port:127.0.0.1" "$sync_origin/source.tar.gz" -o "$sync_stage/published-source.tar.gz"
 cmp "$sync_release/source.tar.gz" "$sync_stage/published-source.tar.gz"
 for sync_file in openless-cloud-sync-backup.service openless-cloud-sync-backup.timer openless-cloud-sync-prune.service openless-cloud-sync-prune.timer; do
     install -m 0644 "$sync_source/deploy/$sync_file" "/etc/systemd/system/$sync_file"
