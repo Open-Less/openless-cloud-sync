@@ -27,6 +27,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nginx", default="nginx")
     args = parser.parse_args()
+    help_result = subprocess.run([args.nginx, "-h"], capture_output=True, text=True, check=True)
+    nginx_command = [args.nginx]
+    # Ubuntu 22.04 ships nginx 1.18, before the -e error-log option was added.
+    if "-e " in help_result.stdout + help_result.stderr:
+        nginx_command += ["-e", "stderr"]
     api_port, tls_port = free_port(), free_port()
     with tempfile.TemporaryDirectory(prefix="openless-nginx-") as temporary:
         directory = Path(temporary)
@@ -52,13 +57,13 @@ def main():
         config = f"daemon off; worker_processes 1; pid {directory}/nginx.pid; error_log {directory}/main-error.log;\nevents {{ worker_connections 64; }}\nhttp {{\n" + f"client_body_temp_path {directory}/body; proxy_temp_path {directory}/proxy; fastcgi_temp_path {directory}/fastcgi; uwsgi_temp_path {directory}/uwsgi; scgi_temp_path {directory}/scgi;\n" + config + "\n}\n"
         path = directory / "nginx.conf"
         path.write_text(config)
-        subprocess.run([args.nginx, "-e", "stderr", "-t", "-p", str(directory) + "/", "-c", str(path)], check=True)
+        subprocess.run(nginx_command + ["-t", "-p", str(directory) + "/", "-c", str(path)], check=True)
         environment = {**os.environ, "SYNC_BIND": f"127.0.0.1:{api_port}", "SYNC_DATABASE": str(directory / "sync.db"),
                        "SYNC_GITHUB_CLIENT_ID": "synthetic_test_app", "SYNC_GITHUB_CLIENT_SECRET": "synthetic-test-only-client-secret",
                        "SYNC_ALLOW_LOCAL_HTTP": "false", "SYNC_ACCESS_MODE": "restricted", "SYNC_ALLOWED_GITHUB_IDS": "12345"}
         log = (directory / "output.log").open("wb")
         api = subprocess.Popen([str(ROOT / "target/release/openless-cloud-sync")], env=environment, stdout=log, stderr=log)
-        nginx = subprocess.Popen([args.nginx, "-e", "stderr", "-p", str(directory) + "/", "-c", str(path)], stdout=log, stderr=log)
+        nginx = subprocess.Popen(nginx_command + ["-p", str(directory) + "/", "-c", str(path)], stdout=log, stderr=log)
         context = ssl.create_default_context(cafile=str(cert))
         try:
             for _ in range(100):
