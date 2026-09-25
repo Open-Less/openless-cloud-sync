@@ -15,4 +15,4 @@ for path in [args.certificate, args.certificate_key]:
     if not re.fullmatch(r"/[A-Za-z0-9_./-]+", path):
         parser.error("certificate paths must be absolute and contain no nginx metacharacters")
 template = Path(__file__).resolve().parents[1] / "deploy/nginx.conf.template"
-print(template.read_text().replace("__DOMAIN__", args.domain).replace("__CERTIFICATE__", args.certificate).replace("__CERTIFICATE_KEY__", args.certificate_key))
+print(template.read_text(encoding="utf-8").replace("__DOMAIN__", args.domain).replace("__CERTIFICATE__", args.certificate).replace("__CERTIFICATE_KEY__", args.certificate_key))

@@ -10,12 +10,12 @@ import jsonschema
 import yaml
 
 root = Path(__file__).resolve().parents[1]
-spec = yaml.safe_load((root / "docs/openapi.yaml").read_text())
+spec = yaml.safe_load((root / "docs/openapi.yaml").read_text(encoding="utf-8"))
 with tempfile.TemporaryDirectory(prefix="openless-contract-") as temporary:
     path = Path(temporary) / "responses.json"
     subprocess.run(["cargo", "test", "--locked", "--test", "openapi_samples"], cwd=root,
                    env={**os.environ, "SYNC_CONTRACT_SAMPLES": str(path)}, check=True)
-    samples = json.loads(path.read_text())
+    samples = json.loads(path.read_text(encoding="utf-8"))
     for sample in samples:
         response = spec["paths"][sample["path"]][sample["method"]]["responses"][sample["status"]]
         if "content" in response:

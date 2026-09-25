@@ -25,7 +25,7 @@ def main() -> None:
         port = sock.getsockname()[1]
     token = secrets.token_urlsafe(32)
     origin = f"http://127.0.0.1:{port}"
-    fixture = json.loads((ROOT / "tests/vectors/v1.json").read_text())["vectors"][0]
+    fixture = json.loads((ROOT / "tests/vectors/v1.json").read_text(encoding="utf-8"))["vectors"][0]
     snapshot = fixture["snapshot"].copy()
     # Use the actual encrypted fixture without changing AAD. Seed its high revision in this disposable DB.
     with tempfile.TemporaryDirectory(prefix="openless-smoke-") as temporary:
@@ -107,7 +107,7 @@ def main() -> None:
         finally:
             process.terminate()
             process.wait(timeout=15)
-        logs = logfile.read_text()
+        logs = logfile.read_text(encoding="utf-8")
         for forbidden in [token, snapshot["ciphertext"], "synthetic-test-only-client-secret", fixture["passwordInput"], fixture["derivedKeyHex"]]:
             assert forbidden not in logs, "sensitive value in service log"
             if forbidden != snapshot["ciphertext"]:
