@@ -77,9 +77,12 @@ def main():
             for path, expected in [("/", b"/source.tar.gz"), ("/license", b"GNU AFFERO GENERAL PUBLIC LICENSE"),
                                    ("/revision", b"0" * 40), ("/source.tar.gz", b"test-only-source-archive"),
                                    ("/third-party-notices", b"AGPL-3.0-only")]:
-                with urllib.request.urlopen(f"https://localhost:{tls_port}{path}", context=context, timeout=5) as response:
-                    assert expected in response.read(), path
-                    assert response.headers["Cache-Control"] == "no-store"
+                try:
+                    with urllib.request.urlopen(f"https://localhost:{tls_port}{path}", context=context, timeout=5) as response:
+                        assert expected in response.read(), path
+                        assert response.headers["Cache-Control"] == "no-store"
+                except urllib.error.HTTPError as error:
+                    raise AssertionError(f"static endpoint {path}: HTTP {error.code}") from error
             for path, headers, status, code in [
                 ("/v1/me/vault", {}, 401, "unauthenticated"),
                 ("/v1/me/vault/snapshot", {"Content-Length": "25165825"}, 413, "payload_too_large"),

@@ -36,7 +36,8 @@ server {
     location = / {
         default_type text/html;
         charset utf-8;
-        alias /opt/openless-cloud-sync/current/index.html;
+        root /opt/openless-cloud-sync/current;
+        try_files /index.html =404;
     }
     location = /source.tar.gz {
         default_type application/gzip;
