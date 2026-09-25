@@ -1,0 +1,12 @@
+/target/
+/.venv/
+/.env
+/.env.*
+!/deploy/*.env.example
+/data/
+/backups/
+*.db
+*.db-*
+*.sqlite*
+__pycache__/
+/.local/

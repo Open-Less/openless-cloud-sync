@@ -1,6 +1,6 @@
 # 加密数据协议 v1
 
-状态：待实现合同；版本 `1.0-draft.1`。本文定义字节级互操作要求，不规定服务框架或存储架构。HTTP 字段见 [API](http-api.md)；机器定义见 [OpenAPI](openapi.yaml)。
+状态：合同版本 `1.0-draft.1`；[固定测试向量](../tests/vectors/v1.json) 已由 RustCrypto 与 reference Argon2/libsodium 验证。客户端接入与跨设备验收仍待完成。本文定义字节级互操作要求。HTTP 字段见 [API](http-api.md)；机器定义见 [OpenAPI](openapi.yaml)。
 
 ## 1. 固定密码学配置
 

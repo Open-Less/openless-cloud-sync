@@ -1,0 +1,14 @@
+[Unit]
+Description=Enforce encrypted sync backup retention
+
+[Service]
+Type=oneshot
+User=openless-sync
+Group=openless-sync
+ExecStart=/usr/bin/python3 /opt/openless-cloud-sync/current/backup.py --prune-only
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/openless-cloud-sync

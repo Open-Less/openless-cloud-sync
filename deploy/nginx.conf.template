@@ -1,0 +1,96 @@
+# Include in the http context. Replace placeholders with render_nginx.py.
+map $request_id $openless_sync_request_id {
+    "~^(.{8})(.{4}).(.{3}).(.{3})(.{12})$" "$1-$2-4$3-8$4-$5";
+}
+limit_conn_zone $binary_remote_addr zone=openless_sync_per_ip:10m;
+limit_conn_zone $server_name zone=openless_sync_total:1m;
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name __DOMAIN__;
+    ssl_certificate __CERTIFICATE__;
+    ssl_certificate_key __CERTIFICATE_KEY__;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    server_tokens off;
+    access_log off;
+    # Keep nginx from logging request lines or Authorization at debug/error level.
+    error_log /var/log/nginx/openless-cloud-sync-error.log crit;
+    add_header Strict-Transport-Security "max-age=31536000" always;
+    add_header Cache-Control "no-store" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    client_max_body_size 24m;
+    client_body_timeout 60s;
+    client_header_timeout 10s;
+    send_timeout 60s;
+    keepalive_timeout 15s;
+    gzip off;
+    limit_conn openless_sync_per_ip 8;
+    limit_conn openless_sync_total 32;
+    limit_conn_status 503;
+    error_page 413 = @too_large;
+    error_page 400 408 414 431 494 495 496 497 = @invalid;
+    error_page 500 502 503 504 = @unavailable;
+
+    location = /healthz { return 404; }
+    location = / {
+        default_type text/html;
+        charset utf-8;
+        alias /opt/openless-cloud-sync/current/index.html;
+    }
+    location = /source.tar.gz {
+        default_type application/gzip;
+        alias /opt/openless-cloud-sync/current/source.tar.gz;
+    }
+    location = /revision {
+        default_type text/plain;
+        alias /opt/openless-cloud-sync/current/REVISION;
+    }
+    location = /license {
+        default_type text/plain;
+        charset utf-8;
+        alias /opt/openless-cloud-sync/current/LICENSE;
+    }
+    location = /third-party-notices {
+        default_type text/plain;
+        charset utf-8;
+        alias /opt/openless-cloud-sync/current/THIRD_PARTY_NOTICES.md;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header Forwarded "";
+        proxy_set_header X-Dev-User "";
+        proxy_set_header X-Admin "";
+        proxy_set_header Cookie "";
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 65s;
+        proxy_send_timeout 60s;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_next_upstream off;
+        proxy_hide_header Cache-Control;
+        proxy_hide_header X-Content-Type-Options;
+    }
+    location @too_large {
+        default_type application/json;
+        return 413 '{"error":{"code":"payload_too_large","message":"Payload exceeds protocol limits.","requestId":"$openless_sync_request_id"}}';
+    }
+    location @invalid {
+        default_type application/json;
+        return 400 '{"error":{"code":"invalid_request","message":"Invalid request.","requestId":"$openless_sync_request_id"}}';
+    }
+    location @unavailable {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        add_header Retry-After "5" always;
+        add_header Strict-Transport-Security "max-age=31536000" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        return 503 '{"error":{"code":"service_unavailable","message":"Service temporarily unavailable.","requestId":"$openless_sync_request_id"}}';
+    }
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily encrypted sync backup
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 UTC
+Persistent=true
+Unit=openless-cloud-sync-backup.service
+
+[Install]
+WantedBy=timers.target

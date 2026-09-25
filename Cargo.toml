@@ -1,0 +1,43 @@
+[package]
+name = "openless-cloud-sync"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "OpenLess encrypted snapshot sync service"
+license = "AGPL-3.0-only"
+repository = "https://github.com/Open-Less/openless-cloud-sync"
+publish = false
+
+[dependencies]
+axum = "0.8.9"
+base64 = "0.22"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+getrandom = "0.4"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json"] }
+uuid = { version = "1", features = ["v4"] }
+zeroize = "1"
+
+[dev-dependencies]
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+http-body-util = "0.1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+unicode-normalization = "0.1"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+correctness = "deny"
+
+[profile.release]
+lto = "thin"
+strip = true

@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly encrypted sync backup expiry enforcement
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=openless-cloud-sync-prune.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,37 @@
+[Unit]
+Description=OpenLess encrypted cloud sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openless-sync
+Group=openless-sync
+EnvironmentFile=/etc/openless-cloud-sync/sync.env
+ExecStart=/opt/openless-cloud-sync/current/openless-cloud-sync
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=75
+StateDirectory=openless-cloud-sync
+StateDirectoryMode=0700
+UMask=0077
+LimitCORE=0
+MemoryMax=1G
+TasksMax=128
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
