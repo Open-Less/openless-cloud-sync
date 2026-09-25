@@ -6,8 +6,8 @@ limit_conn_zone $binary_remote_addr zone=openless_sync_per_ip:10m;
 limit_conn_zone $server_name zone=openless_sync_total:1m;
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen __HTTPS_PORT__ ssl;
+    listen [::]:__HTTPS_PORT__ ssl;
     server_name __DOMAIN__;
     ssl_certificate __CERTIFICATE__;
     ssl_certificate_key __CERTIFICATE_KEY__;
@@ -58,7 +58,7 @@ server {
         alias /opt/openless-cloud-sync/current/THIRD_PARTY_NOTICES.md;
     }
     location / {
-        proxy_pass http://127.0.0.1:8787;
+        proxy_pass http://127.0.0.1:__UPSTREAM_PORT__;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header Connection "";

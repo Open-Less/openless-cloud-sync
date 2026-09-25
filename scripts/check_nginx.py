@@ -44,9 +44,9 @@ def main():
         subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
                         "-subj", "/CN=localhost", "-addext", "subjectAltName=DNS:localhost",
                         "-keyout", str(key), "-out", str(cert)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        config = subprocess.check_output(["python3", str(ROOT / "scripts/render_nginx.py"), "sync.localhost", str(cert), str(key)], text=True)
-        config = config.replace("listen 443 ssl;", f"listen 127.0.0.1:{tls_port} ssl;").replace("listen [::]:443 ssl;", "")
-        config = config.replace("127.0.0.1:8787", f"127.0.0.1:{api_port}")
+        config = subprocess.check_output(["python3", str(ROOT / "scripts/render_nginx.py"), "sync.localhost", str(cert), str(key),
+                                          "--https-port", str(tls_port), "--upstream-port", str(api_port)], text=True)
+        config = config.replace(f"listen {tls_port} ssl;", f"listen 127.0.0.1:{tls_port} ssl;").replace(f"listen [::]:{tls_port} ssl;", "")
         config = config.replace("/var/log/nginx/openless-cloud-sync-error.log", str(directory / "error.log"))
         config = config.replace("/opt/openless-cloud-sync/current", str(source))
         config = f"daemon off; worker_processes 1; pid {directory}/nginx.pid; error_log {directory}/main-error.log;\nevents {{ worker_connections 64; }}\nhttp {{\n" + f"client_body_temp_path {directory}/body; proxy_temp_path {directory}/proxy; fastcgi_temp_path {directory}/fastcgi; uwsgi_temp_path {directory}/uwsgi; scgi_temp_path {directory}/scgi;\n" + config + "\n}\n"

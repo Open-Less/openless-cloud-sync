@@ -5,7 +5,7 @@
 ## 部署输入
 
 - Ubuntu/Debian 主机，root 或有等效安装权限的 SSH 账号；已安装 Git、Rust ≥ 1.88、C 编译器、CMake、nginx、Python 3、CA 证书。
-- 独立同步域名及其有效 TLS 证书、私钥路径；DNS 指向目标主机，443 可达。客户端使用 HTTPS origin，不带旧服务的 `/me/sync` 路径。
+- 独立同步 HTTPS origin 及其有效 TLS 证书、私钥路径；可以是独立子域名，或现有域名的独立 HTTPS 端口。DNS 指向目标主机，配置的 TLS 端口可达。客户端使用 HTTPS origin，不带旧服务的 `/me/sync` 路径。
 - 专用 GitHub OAuth App，启用 Device Flow，最小身份 scope；client secret 仅进入服务器配置。不得复用市场 OAuth App。
 - 用于逐项测试的 GitHub numeric ID。默认 restricted 模式；空白名单关闭登录。
 
@@ -34,6 +34,8 @@ bash scripts/deploy.sh SSH_HOST sync.example.com /etc/letsencrypt/live/sync.exam
 ```
 
 本地工作树须已提交且干净，并已推送到官方仓库。脚本将本地 HEAD 的完整 SHA 交给服务器，由服务器直接从 GitHub 检出该提交，执行 locked 测试与 release 构建，不上传本机数据或凭据。可以用第五个参数指定完整 SHA，但本地也须检出同一提交。
+
+共享服务器可以用第六、七个参数指定 HTTPS 和内部端口，例如 `COMMIT_SHA 9443 8788`；对应环境文件设置 `SYNC_BIND=127.0.0.1:8788`。省略时仍使用 443 和 8787。安装脚本会检查内部端口与环境文件一致；不要修改已被其他服务占用的端口。仅向公网开放所选 HTTPS 端口，内部端口始终只绑定回环地址。
 
 安装过程创建独立用户、目录和 systemd 单元，检查 nginx，再启用服务和 HTTPS 虚拟主机。程序按二进制 SHA-256 标识版本，保留 Git 提交号和对应源码归档。首次部署创建数据库，后续保留数据；健康验证失败恢复上个程序及主要代理配置，不覆盖数据库。生产 schema v1；将来有不兼容迁移时必须另行设计迁移和回滚，不能仅回退二进制。
 
