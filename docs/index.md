@@ -16,6 +16,7 @@
 | --- | --- |
 | [架构](architecture.md) | 服务边界、身份、存储与事务 |
 | [部署](deployment.md) | 配置、版本化安装、TLS、灾备和当前阻碍 |
+| [客户端连接信息](connection.md) | 服务地址、复用登录与接口接线 |
 | [服务端验收](server-acceptance.md) | 自动验证证据和部署后逐项测试 |
 | [固定向量](../tests/vectors/v1.json) | 两套独立密码学实现共同验证的公开测试值 |
 | [第三方许可](../THIRD_PARTY_NOTICES.md) | 锁定依赖与公开发布边界 |

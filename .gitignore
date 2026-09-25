@@ -10,3 +10,4 @@
 *.sqlite*
 __pycache__/
 /.local/
+.DS_Store

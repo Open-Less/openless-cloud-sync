@@ -9,7 +9,7 @@
 | 文件 | 职责 |
 | --- | --- |
 | `src/server.rs` | 认证前后边界、HTTPS 代理、Origin 白名单、体积/超时/并发限制、HTTP 路由、脱敏日志 |
-| `src/auth.rs` | 专用 GitHub OAuth App 核验、numeric ID、900 秒随机同步令牌 |
+| `src/auth.rs` | 现有 OpenLess GitHub OAuth App 核验、numeric ID、900 秒随机同步令牌 |
 | `src/protocol.rs` | 严格 DTO、uint64 十进制版本、UUIDv4、固定 cryptoProfile、规范 base64url、密文哈希和长度 |
 | `src/store.rs` | CAS、原子快照和回执、删除墓碑、nonce/盐/ID 重用保护、会话、持久化滑动窗口限流 |
 | `src/config.rs` | 环境配置和启动时校验；生产只绑定回环地址 |
@@ -24,7 +24,7 @@
 
 ## 认证与数据边界
 
-GitHub `POST /applications/{client_id}/token` 使用专用 client ID/secret 和固定 `2026-03-10` API 版本，禁止重定向。只使用核验响应中的 numeric user ID，额外核对 app.client_id 和有效期。上游 404 不能区分无效令牌与其他应用令牌，统一返回 401；成功响应中应用不一致返回 403 wrong_oauth_app。上游应用凭据失效或限流返回 503，不冒充用户登录失败。
+GitHub `POST /applications/{client_id}/token` 使用现有 OpenLess OAuth App 的 client ID/secret 和固定 `2026-03-10` API 版本，禁止重定向。只使用核验响应中的 numeric user ID，额外核对 app.client_id 和有效期。上游 404 不能区分无效令牌与其他应用令牌，统一返回 401；成功响应中应用不一致返回 403 wrong_oauth_app。上游应用凭据失效或限流返回 503，不冒充用户登录失败。
 
 GitHub 用户令牌不入库。同步令牌来自操作系统随机数，32 字节，仅保存 SHA-256 和 900 秒期限。注销删除当前 hash。生产二进制没有开发身份头、假登录、上游 URL 覆盖或服务端密码接口。默认 restricted 模式只允许显式列出的 GitHub ID；没有名单时无人可登录，public 模式须显式配置。
 

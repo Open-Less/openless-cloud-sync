@@ -8,17 +8,19 @@
 | --- | --- | --- |
 | `src/lib/ipc/cloud-sync.ts` | status/upload/restore/delete 四个手动接口 | 新的加密同步命令族及明确状态机，保留旧协议迁移边界 |
 | `src-tauri/src/commands/cloud_sync.rs` | 直接委托 Core，无加密密码参数 | 密码仅以一次性本地 IPC 参数进入 Core；不能调用服务器密码验证 |
-| `crates/openless-core/src/cloud_sync.rs` | 使用 Marketplace 登录和 `/me/sync`，发送明文 JSON 快照 | 独立云同步认证、加密、版本和幂等语义；仅发送密文 |
+| `crates/openless-core/src/cloud_sync.rs` | 使用 Marketplace 登录和 `/me/sync`，发送明文 JSON 快照 | 复用已有 GitHub 登录、独立短期同步会话、加密、版本和幂等语义；仅发送密文 |
 | `cloud_sync_types.rs` | 有限 SyncPreferences；排除渠道、密钥和历史 | 新的加密逻辑文档格式；不能在旧 DTO 加 `apiKey` 字段后继续上传 |
 | `cloud_sync_validation.rs` | 校验旧明文 DTO、2 MiB 上限 | 新 wire 密文校验与客户端解密后的文档校验分开执行 |
 | `cloud_sync_transaction.rs` | 多文件错误回滚，不包含凭据库，也不是跨进程崩溃恢复 | 同一恢复操作协调配置、内存与凭据库，并能在进程退出后继续或回滚 |
 | `src/pages/settings/CloudSyncSection.tsx` | 手动备份/恢复/删除、少量状态 | 显式开启、登录、创建/解锁密码、冲突预览、自动同步状态、独立删除 |
 | `src/styles/global.css` 的 `.ol-cloud-sync*` | 旧卡片布局 | 标题/说明、账号标签/值、按钮间距保持独立，窄窗不挤在一起；不能用字间距补布局问题 |
-| `marketplace.rs` 的 `CLOUD_SYNC_BASE_URL` | 云同步依赖市场主机与固定 9443 端口 | 新服务 origin 与 OAuth client ID 独立配置；不得误连旧服务后把密钥按旧格式上传 |
+| `marketplace.rs` 的 `CLOUD_SYNC_BASE_URL` | 云同步依赖市场主机与固定 9443 端口 | 新服务 origin 独立配置；OAuth client ID 与现有 OpenLess 登录一致；不得误连旧服务后把密钥按旧格式上传 |
 
 旧 `/me/sync` 继续只描述旧手动快照。新用户未同意前不自动迁移。若导入旧备份，先按旧合同校验，在本地与当前数据合并，用户确认后再加密创建新库；旧服务器数据是否删除要单独确认。
 
 ## 2. 新的本地 IPC 合同
+
+GitHub 登录统一复用现有 OpenLess OAuth App。已登录时直接在原生层读取已有令牌并交换短期同步会话；下表中的登录命令如保留，只能委托现有登录流程，不创建第二套应用或要求重复授权。退出 OpenLess 账号时同时停止同步、撤销同步会话并清理本机解锁材料。
 
 统一前缀 `cloud_sync_e2ee_*`。旧四个 `cloud_sync_*` 命令不得悄悄改变语义。所有会异步执行网络/磁盘操作的命令返回任务 ID 或状态；“已开始”不能当成“已成功”。
 

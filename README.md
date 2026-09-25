@@ -1,6 +1,6 @@
 # OpenLess Cloud Sync
 
-独立的加密云同步后端。客户端先用用户密码加密配置、服务 API 密钥与历史，服务器只保存密文和必要元数据。专用 GitHub OAuth App 核验身份，以 numeric ID 绑定账号；服务器不接收同步密码、不派生解密密钥。
+独立的加密云同步后端。客户端先用用户密码加密配置、服务 API 密钥与历史，服务器只保存密文和必要元数据。复用现有 OpenLess GitHub OAuth App 核验身份，以 numeric ID 绑定账号；服务器不接收同步密码、不派生解密密钥。
 
 **当前：服务端 `0.1.0` 已实现并通过本地及 Linux/macOS/Windows CI 验证；服务器部署、真实 OAuth 联调及客户端接入尚未完成。** 协议版本 `1.0-draft.1`，不兼容旧 `/me/sync` 明文合同。
 
@@ -46,7 +46,7 @@ python3 -m venv .venv
 cargo audit --deny warnings
 ```
 
-生产没有开发身份后门，运行必须提供专用 GitHub OAuth 配置。合成身份仅存在于测试中；真实进程测试只向临时数据库注入一次测试会话。默认 restricted 模式，先用指定账号逐项测试。
+生产没有开发身份后门，运行必须提供与现有 OpenLess 登录一致的 GitHub OAuth 配置。合成身份仅存在于测试中；真实进程测试只向临时数据库注入一次测试会话。默认 restricted 模式，先用指定账号逐项测试。
 
 ## 开源与许可
 

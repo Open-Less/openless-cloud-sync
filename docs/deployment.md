@@ -6,7 +6,7 @@
 
 - Ubuntu/Debian 主机，root 或有等效安装权限的 SSH 账号；已安装 Git、Rust ≥ 1.88、C 编译器、CMake、nginx、Python 3、CA 证书。
 - 独立同步 HTTPS origin 及其有效 TLS 证书、私钥路径；可以是独立子域名，或现有域名的独立 HTTPS 端口。DNS 指向目标主机，配置的 TLS 端口可达。客户端使用 HTTPS origin，不带旧服务的 `/me/sync` 路径。
-- 专用 GitHub OAuth App，启用 Device Flow，最小身份 scope；client secret 仅进入服务器配置。不得复用市场 OAuth App。
+- 复用现有 OpenLess GitHub OAuth App 和设备登录态，仅使用身份 scope；client secret 仅进入服务器配置，客户端凭据库继续保存已有 GitHub 登录令牌。
 - 用于逐项测试的 GitHub numeric ID。默认 restricted 模式；空白名单关闭登录。
 
 服务器上首次配置：
@@ -59,7 +59,7 @@ systemctl list-timers 'openless-cloud-sync-*'
 systemctl status openless-cloud-sync-backup.service openless-cloud-sync-prune.service
 ```
 
-`/healthz` 仅用于主机本地检查数据库；代理不暴露它。检查能力中的 githubClientId 必须是专用应用。随后执行 [服务端验收](server-acceptance.md)，先真实 GitHub 登录，再逐项测试。客户端应用仍需按 [客户端交接](client-integration.md) 接入，旧应用不能直接调用本接口。
+`/healthz` 仅用于主机本地检查数据库；代理不暴露它。检查能力中的 githubClientId 必须与已有 OpenLess 登录的 Client ID 一致。随后执行 [服务端验收](server-acceptance.md)，先真实 GitHub 登录，再逐项测试。客户端应用仍需按 [客户端交接](client-integration.md) 接入，旧应用不能直接调用本接口。
 
 HTTPS 首页提供 `/license`、`/source.tar.gz`、`/revision` 和 `/third-party-notices`。源码归档从同一干净 Git 提交生成，包含构建所需清单、锁文件、源码、迁移、测试和部署脚本，不包含生产配置、数据库或 `.git`。维护修改版时保留这个入口并更新对应源码；它是服务运行版本的源码交付入口。
 
@@ -80,4 +80,4 @@ sudo -u openless-sync python3 /opt/openless-cloud-sync/current/backup.py --prune
 
 ## 当前部署阻碍
 
-官网和应用记录已核对，现有 `openless.top` 与 `apic.openless.top` 指向同一主机，官网 HTTPS 可访问；`sync.openless.top` 尚无 DNS 记录。只读连接现有 SSH 别名仍失败（`Permission denied`），本机运维记录指定的私钥文件缺失。需要恢复有效登录入口，再读取服务器证书和站点配置、设置独立同步域名以及专用 OAuth App。未修改现有服务器、市场服务或其数据。
+官网和应用记录已核对，现有 `openless.top` 与 `apic.openless.top` 指向同一主机，官网 HTTPS 可访问；`sync.openless.top` 尚无 DNS 记录。已通过所有者提供的密码登录服务器，并完成源码构建、16 项 Rust 测试、真实 HTTPS 隔离验证和备份测试。计划使用已有证书及 `https://apic.openless.top:9443`，内部端口为 `127.0.0.1:8788`，避开其他服务占用的 8787。正式服务等待现有 OpenLess OAuth App 的服务端 Secret 配置；没有新建 OAuth App，也没有修改现有官网或市场服务。

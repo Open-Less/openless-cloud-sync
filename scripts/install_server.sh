@@ -31,7 +31,7 @@ for command in systemctl nginx python3 curl install sha256sum git; do command -v
     exit 1
 }
 if grep -q 'REPLACE_WITH' "$sync_env"; then
-    echo 'Configure dedicated OAuth credentials before installation.' >&2
+    echo 'Configure the existing OpenLess OAuth credentials before installation.' >&2
     exit 1
 fi
 [[ $(stat -c '%a' "$sync_env") == 600 && $(stat -c '%U' "$sync_env") == root ]] || {

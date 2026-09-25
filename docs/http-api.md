@@ -21,7 +21,7 @@
 
 ### GitHub 登录与云同步令牌是两层
 
-客户端通过专用云同步 OAuth 应用完成 GitHub device flow，仅申请用户身份所需的最小 scope。device code、GitHub access/refresh token 全程留在原生认证层；React 只获得用户码、验证地址、期限和登录状态。遵守 GitHub 返回的 interval、slow_down 和授权过期行为。这是短期登录协议，不是周期同步。[GitHub device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow)
+客户端复用现有 OpenLess OAuth App 和已保存的 GitHub 登录态；已登录时直接进行同步会话交换，不再次发起 GitHub 授权。未登录时才通过统一 GitHub device flow 登录，仅申请用户身份所需的最小 scope。device code、GitHub access/refresh token 全程留在原生认证层；React 只获得用户码、验证地址、期限和登录状态。遵守 GitHub 返回的 interval、slow_down 和授权过期行为。这是短期登录协议，不是周期同步。[GitHub device flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps#device-flow)
 
 `POST /v1/auth/github` 的 Bearer 是 GitHub OAuth access token。服务器必须使用配置的 OAuth 应用身份向 GitHub 核验令牌所属应用和有效性，并采用核验结果中的 numeric user ID；不能接受用户名自报、开发身份头或任意其他 OAuth 应用的令牌。GitHub 核验端点为 `POST https://api.github.com/applications/{client_id}/token`，服务端 client secret 不能进入客户端或开源仓库。上游 API 版本固定为当前已核验的 `2026-03-10`，变更须通过合同验证。[GitHub Check a token](https://docs.github.com/en/rest/apps/oauth-applications#check-a-token)
 

@@ -57,7 +57,7 @@ paths:
   /v1/auth/github:
     post:
       operationId: exchangeGithubToken
-      summary: 核验专用 GitHub OAuth 令牌并换取短期同步令牌
+      summary: 核验现有 OpenLess GitHub OAuth 令牌并换取短期同步令牌
       security:
       - GithubBearer: []
       responses:
