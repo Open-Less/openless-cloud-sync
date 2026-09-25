@@ -2,8 +2,10 @@ openapi: 3.1.0
 info:
   title: OpenLess Encrypted Cloud Sync API
   version: 1.0-draft.1
-  description: 服务端 0.1.0 已实现并通过本地合同验证；尚未部署或完成真实 OAuth 联调。仅存储端到端加密快照。行为约束见 http-api.md，AAD 与密码学见 encryption-protocol.md。
+  description: 服务端 0.1.0 已上线供指定账号联调，完整客户端验收待完成。仅存储端到端加密快照。行为约束见 http-api.md，AAD 与密码学见 encryption-protocol.md。
 servers:
+- url: https://apic.openless.top:9443
+  description: 已部署的指定账号联调环境
 - url: https://sync.openless.example
   description: 保留示例域名，不是生产地址
 security:
