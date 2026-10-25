@@ -1,9 +1,9 @@
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use openless_cloud_sync::{
-    protocol::{Snapshot, hash},
+    protocol::{Metadata, Snapshot, hash},
     store::{Mutation, Store},
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 fn sample(owner: &str) -> Vec<u8> {
     let ciphertext = vec![42; 65552];
@@ -16,6 +16,55 @@ fn sample(owner: &str) -> Vec<u8> {
         "aead":"xchacha20poly1305-ietf", "codec":"json-pad64k-v1", "nonce":URL_SAFE_NO_PAD.encode([2;24]),
         "ciphertextSha256":hash(&ciphertext), "ciphertext":URL_SAFE_NO_PAD.encode(ciphertext)
     })).unwrap()
+}
+
+#[tokio::test]
+async fn current_client_envelope_round_trips_as_opaque_ciphertext() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("test.db");
+    let store = Store::open(&path).unwrap();
+    let fixture: Value = serde_json::from_str(include_str!("vectors/v1.json")).unwrap();
+    let value = fixture["vectors"][0]["snapshot"].clone();
+    let body = serde_json::to_vec(&value).unwrap();
+    let snapshot: Snapshot = serde_json::from_value(value.clone()).unwrap();
+    let owner = snapshot.owner_github_id.clone();
+    let ciphertext = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&snapshot.ciphertext)
+        .unwrap();
+    let prior = Metadata {
+        protocol_version: 1,
+        state: "active".into(),
+        owner_github_id: owner.clone(),
+        revision: snapshot.base_revision.clone(),
+        vault_id: Some(snapshot.vault_id.clone()),
+        key_id: Some(snapshot.key_id.clone()),
+        updated_at: Some("2026-09-23T00:00:00Z".into()),
+        payload_schema_version: Some(snapshot.payload_schema_version),
+        ciphertext_bytes: ciphertext.len(),
+        ciphertext_sha256: Some(snapshot.ciphertext_sha256.clone()),
+        last_operation_id: Some(uuid::Uuid::new_v4().to_string()),
+    };
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute(
+        "INSERT INTO vaults(owner,metadata,snapshot) VALUES(?1,?2,?3)",
+        rusqlite::params![owner, serde_json::to_string(&prior).unwrap(), body.clone()],
+    )
+    .unwrap();
+
+    let request = Mutation::new(
+        snapshot.owner_github_id.clone(),
+        "PUT",
+        "/v1/me/vault/snapshot",
+        Some(prior.etag()),
+        snapshot.operation_id.clone(),
+        body.clone(),
+    );
+    let (_, replayed) = store.mutate(request).await.unwrap();
+    assert!(!replayed);
+    let metadata = store.metadata(snapshot.owner_github_id).await.unwrap();
+    let downloaded = store.download(owner, metadata.etag()).await.unwrap();
+    assert_eq!(downloaded, body);
+    assert_eq!(serde_json::from_slice::<Value>(&downloaded).unwrap(), value);
 }
 
 #[tokio::test]

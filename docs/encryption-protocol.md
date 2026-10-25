@@ -34,6 +34,8 @@ XChaCha20-Poly1305 使用扩展 nonce 支持各设备独立生成随机 nonce，
 
 ## 3. 解密后的逻辑快照
 
+The logical snapshot is client-owned plaintext and remains inside the AEAD ciphertext. The client change in commit `f71ffd54` adds portable preference values such as `cursorContextEnabled`, `polishContextWindowMinutes`, `polishSkipMaxChars`, `streamingInsert`, `windowsCompositionInput`, `selectionVoice*`, and layout/history/update settings to the encrypted `preferences` document. These fields do not change `SnapshotUpload`, `payloadSchemaVersion`, the codec, or any protocol size limit. The server must validate only the public envelope, store the complete request bytes, and return those bytes unchanged; it must not decrypt the snapshot or add plaintext preference DTOs, migrations, or field-level handling.
+
 顶层 UTF-8 JSON 对象：
 
 | 字段 | 类型 | 约束 |
