@@ -1,23 +1,40 @@
 # OpenLess Cloud Sync
 
-## 范围
+## Scope
 
-本项目是独立的加密云同步服务。需求和对外合同以 [docs/index.md](docs/index.md) 指向的文件为准。服务端为 Rust/Axum + SQLite，应用接入归 `1-app/`；不能把本地测试通过当成已部署、全平台验收或独立安全审查完成。
+This repository is an independent encrypted cloud-sync service. The requirements and public contract are the files linked from [docs/index.md](docs/index.md). The service uses Rust/Axum and SQLite; application integration belongs in `1-app/`. Passing local tests does not prove deployment, cross-platform acceptance, or an independent security review.
 
-## 边界
+## Boundaries
 
-- 云端只接收配置快照的密文。加密密码、派生密钥、配置和服务 API 密钥的明文不得进入服务器接口、日志或运营工具。
-- GitHub 仅用于确认账号身份；以 GitHub numeric ID 隔离数据，不能按用户名绑定旧数据。
-- 所有密码学原语使用经过审查的实现，不自制算法、不降级明文、不以“永不被攻破”作为产品承诺。
-- 这是独立于风格包市场的合同。旧应用 `/me/sync` 不得直接扩展为明文传输 API 密钥的接口。
-- 未来服务代码、协议与测试须可开源审查；部署凭据、用户数据和密钥不属于源码。正式开源前必须明确许可证和第三方许可边界。
+- The cloud service receives encrypted configuration snapshots only. Plaintext encryption passwords, derived keys, configuration, and service API keys must never enter server interfaces, logs, or operations tools.
+- GitHub is used only to establish account identity. Data isolation uses the numeric GitHub ID; never bind existing data by username.
+- Use reviewed cryptographic primitives. Do not invent algorithms, downgrade to plaintext, or promise that a system is impossible to break.
+- This service has a contract independent of the style-pack marketplace. Do not extend the legacy `/me/sync` endpoint into an API that sends plaintext API keys.
+- Service code, protocols, and tests must remain open to source review. Deployment credentials, user data, and keys do not belong in source. Before a public release, document the license and third-party license boundaries.
 
-## 文档维护
+## Documentation maintenance
 
-需求行为以 `requirements.md` 为准；字段与 HTTP 行为以 `http-api.md` 和 `openapi.yaml` 为准；加密字节格式以 `encryption-protocol.md` 为准；应用改动入口集中于 `client-integration.md`。修改相关合同须同时核对错误码、示例、验收项和相对链接。部署信息归 `docs/deployment.md`，验证证据归 `docs/server-acceptance.md`。
+Behavioral requirements are defined by `requirements.md`; fields and HTTP behavior by `http-api.md` and `openapi.yaml`; encrypted byte formats by `encryption-protocol.md`; application changes by `client-integration.md`. When changing a contract, also check error codes, examples, acceptance criteria, and relative links. Deployment information belongs in `docs/deployment.md`; verification evidence belongs in `docs/server-acceptance.md`.
 
-## 开发与验证
+## Development and verification
 
-从本目录运行 `cargo fmt --check`、`cargo clippy --all-targets --locked -- -D warnings`、`cargo test --locked`。依赖使用 `Cargo.lock`；安全检查为 `cargo audit --deny warnings`。完整验证命令在 README。逻辑在 `src/`，迁移在 `migrations/`，测试在 `tests/`，运维模板在 `deploy/`。
+Run these checks from this directory:
 
-变更不得放宽体积、身份或 HTTPS 边界；不添加开发身份配置或可切换到任意上游的生产认证入口。数据库变更须有原子迁移、故障回滚和兼容验证。生产数据库和环境文件不得进入源码、打包产物或日志。
+```text
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+cargo audit --deny warnings
+```
+
+Use `Cargo.lock`. The complete verification commands are in the README. Application logic is in `src/`, migrations are in `migrations/`, tests are in `tests/`, and operations templates are in `deploy/`.
+
+Changes must not widen size, identity, or HTTPS boundaries. Do not add development identity configuration or a production authentication entry point that can switch to an arbitrary upstream. Database changes require an atomic migration, failure rollback, and compatibility verification. Production databases and environment files must not enter source, packaged artifacts, or logs.
+
+## Contribution workflow
+
+- Follow the required `beta -> task` flow: when a `beta` integration branch exists, start from its latest revision and create a dedicated `task/<name>` branch. Never push task commits directly to `beta` or `main`. This server repository currently has no `beta` branch, so tasks explicitly based on the server's latest `main` use a dedicated task branch from `main`.
+- Submit changes through a pull request targeting `main`. Do not push directly to `main`, and do not treat a local commit as submission.
+- Wait for and review every required CI check before reporting the pull request as complete or mergeable. A local pass does not replace the required CI review.
+- Commit only source code, tests, build or deployment configuration, and unfinished planning documents. Remove completed reports, local build records, generated artifacts, and obsolete planning files.
+- All source-code comments must be written in English.

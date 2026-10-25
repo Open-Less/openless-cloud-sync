@@ -18,6 +18,10 @@
 
 旧 `/me/sync` 继续只描述旧手动快照。新用户未同意前不自动迁移。若导入旧备份，先按旧合同校验，在本地与当前数据合并，用户确认后再加密创建新库；旧服务器数据是否删除要单独确认。
 
+### Encrypted server integration boundary
+
+The encrypted service receives only the `SnapshotUpload` envelope and treats its ciphertext as opaque. Client commit `f71ffd54` adds portable preferences such as `cursorContextEnabled`, `polishContextWindowMinutes`, `polishSkipMaxChars`, `streamingInsert`, `windowsCompositionInput`, `selectionVoice*`, and layout/history/update settings inside the encrypted `preferences` document. The envelope, protocol metadata, OpenAPI schema, and size limits are unchanged; the server must store and return the complete body without decrypting it or adding plaintext preference handling.
+
 ## 2. 新的本地 IPC 合同
 
 GitHub 登录统一复用现有 OpenLess OAuth App。已登录时直接在原生层读取已有令牌并交换短期同步会话；下表中的登录命令如保留，只能委托现有登录流程，不创建第二套应用或要求重复授权。退出 OpenLess 账号时同时停止同步、撤销同步会话并清理本机解锁材料。

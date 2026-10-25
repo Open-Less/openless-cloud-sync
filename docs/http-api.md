@@ -84,6 +84,8 @@
 4. 新操作核对 ETag、baseRevision、vault/key/salt 和 kind，原子提交密文、递增版本及回执。操作的“已提交”和快照变化不能分开出现。
 5. 响应不回传整个密文，只回传该操作的确认结果。
 
+The encrypted snapshot body is opaque to this service. Portable preference fields added by client commit `f71ffd54` stay inside the authenticated ciphertext, so they require no server DTO, database column, OpenAPI field, protocol metadata, or size-limit change. The server must persist and return the complete envelope without decrypting, filtering, or reconstructing its plaintext.
+
 | kind | 允许的当前状态 | 约束 |
 | --- | --- | --- |
 | `create` | empty / deleted | 新 vaultId、keyId、盐；deleted 状态仍使用其现有 baseRevision，不能归零 |
