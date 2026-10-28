@@ -38,7 +38,8 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 cargo build --release --locked
 python3 -m venv .venv
-.venv/bin/python -m pip install -r scripts/requirements-test.lock
+.venv/bin/python -m pip install --requirement scripts/requirements-test.lock
+.venv/bin/python -m pip check
 .venv/bin/python scripts/interop_vectors.py
 .venv/bin/python scripts/check_contract.py
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py'
@@ -49,6 +50,8 @@ cargo audit --deny warnings
 ```
 
 生产没有开发身份后门，运行必须提供与现有 OpenLess 登录一致的 GitHub OAuth 配置。合成身份仅存在于测试中；真实进程测试只向临时数据库注入一次测试会话。默认 restricted 模式，先用指定账号逐项测试。
+
+The test dependency lock is validated on Python 3.9 and 3.14 in CI. Keep the lock file intact when reproducing the staging checks; use `python -m pip check` after installation before running the contract scripts.
 
 ## 开源与许可
 
