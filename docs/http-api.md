@@ -1,5 +1,7 @@
 # 云同步 HTTP API v1
 
+Unreleased additive contract: [Encrypted service Usage sidecar](service-usage.md). An existing opaque Usage snapshot blocks a V1-only password change with the existing `409 key_epoch_changed`; ordinary V1 writes and delete remain compatible.
+
 状态：服务端 `0.1.0` 已上线指定账号联调环境，真实账号与完整客户端验收待完成；当前地址见 [连接信息](connection.md)。合同版本 `1.0-draft.1`；字段定义以 [openapi.yaml](openapi.yaml) 为机器来源，加密字节格式以 [加密协议](encryption-protocol.md) 为准。
 
 示例基地址为保留域名 `https://sync.openless.example`，**不是已部署地址**。正式域名与 GitHub OAuth client ID 必须在接入前配置、核验；不沿用旧服务 `https://apic.openless.top:9443/me/sync` 的明文合同。

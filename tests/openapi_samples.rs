@@ -86,7 +86,55 @@ async fn export_contract_samples() {
         )
         .await,
     );
-    let delete = json!({"protocolVersion":1,"baseRevision":"1","operationId":uuid::Uuid::new_v4().to_string(),"expectedVaultId":create["vaultId"]});
+    record(
+        FEATURE,
+        "get",
+        &f.request("GET", FEATURE, None, &[], vec![]).await,
+    );
+    let empty_usage = f.usage_meta(token).await;
+    record(USAGE, "get", &empty_usage);
+    record(
+        USAGE_SNAPSHOT,
+        "get",
+        &f.usage_download(token, empty_usage.tag()).await,
+    );
+    let usage = usage_upload(&create, 0, 3);
+    record(
+        USAGE_SNAPSHOT,
+        "put",
+        &f.usage_put(token, empty_usage.tag(), &usage).await,
+    );
+    let current_usage = f.usage_meta(token).await;
+    record(USAGE, "get", &current_usage);
+    record(
+        USAGE,
+        "get",
+        &f.request(
+            "GET",
+            USAGE,
+            Some(token),
+            &[("if-none-match", current_usage.tag())],
+            vec![],
+        )
+        .await,
+    );
+    record(
+        USAGE_SNAPSHOT,
+        "get",
+        &f.usage_download(token, current_usage.tag()).await,
+    );
+    record(
+        "/v1/me/vault/usage/operations/{operationId}",
+        "get",
+        &f.operation(token, true, &usage["operationId"]).await,
+    );
+    let new = rekey(&create, 4);
+    record(VAULT_SNAPSHOT, "put", &f.put(token, meta.tag(), &new).await);
+    let rotate = dual(&new, current_usage.tag(), 1, 5);
+    record(ROTATE, "put", &f.rotate(token, meta.tag(), &rotate).await);
+    record(ROTATE, "put", &f.rotate(token, meta.tag(), &rotate).await);
+    let meta = f.meta(token).await;
+    let delete = json!({"protocolVersion":1,"baseRevision":"2","operationId":uuid::Uuid::new_v4().to_string(),"expectedVaultId":create["vaultId"]});
     record(
         "/v1/me/vault",
         "delete",
@@ -114,5 +162,5 @@ async fn export_contract_samples() {
     if let Ok(path) = std::env::var("SYNC_CONTRACT_SAMPLES") {
         std::fs::write(path, serde_json::to_vec(&samples).unwrap()).unwrap();
     }
-    assert_eq!(samples.len(), 13);
+    assert_eq!(samples.len(), 24);
 }

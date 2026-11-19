@@ -18,6 +18,10 @@ with tempfile.TemporaryDirectory(prefix="openless-contract-") as temporary:
     samples = json.loads(path.read_text(encoding="utf-8"))
     for sample in samples:
         response = spec["paths"][sample["path"]][sample["method"]]["responses"][sample["status"]]
+        if "$ref" in response:
+            prefix = "#/components/responses/"
+            assert response["$ref"].startswith(prefix)
+            response = spec["components"]["responses"][response["$ref"][len(prefix):]]
         if "content" in response:
             schema = {"components": spec["components"], **response["content"]["application/json"]["schema"]}
             jsonschema.Draft202012Validator(schema, format_checker=jsonschema.FormatChecker()).validate(sample["body"])

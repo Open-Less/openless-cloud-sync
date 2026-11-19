@@ -1,9 +1,11 @@
+mod usage;
+
 use crate::{
+    clock,
     error::{ApiError, Result},
     protocol::{self, DeleteRequest, Metadata, Receipt, Snapshot, UploadKind},
 };
 use axum::http::StatusCode;
-use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
     path::Path,
@@ -61,15 +63,18 @@ impl Store {
         db.busy_timeout(Duration::from_secs(10))?;
         // DELETE journal and secure_delete avoid retaining old ciphertext in WAL/free pages.
         db.execute_batch("PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA secure_delete=ON; PRAGMA foreign_keys=ON;")?;
-        let version: i64 = db.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version > 1 {
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let version: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if !(0..=2).contains(&version) {
             return Err(ApiError::unavailable());
         }
         if version == 0 {
-            let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
             tx.execute_batch(include_str!("../migrations/001_initial.sql"))?;
-            tx.commit()?;
         }
+        if version < 2 {
+            tx.execute_batch(include_str!("../migrations/002_service_usage.sql"))?;
+        }
+        tx.commit()?;
         Ok(Self(Arc::new(Mutex::new(db))))
     }
 
@@ -128,100 +133,104 @@ impl Store {
     }
 
     pub async fn operation(&self, owner: String, id: String) -> Result<Receipt> {
-        self.run(move |db| {
-            let receipt: Option<String> = db.query_row("SELECT receipt FROM operations WHERE owner=?1 AND operation_id=?2 AND committed_at>=?3",
-                params![owner, id, Utc::now().timestamp()-protocol::RETENTION], |r| r.get(0)).optional()?;
-            receipt.map(|r| from_db(&r)).unwrap_or_else(|| Err(ApiError::new(StatusCode::NOT_FOUND, "operation_not_found")))
-        }).await
+        self.run(move |db| operation(db, OperationRoute::Vault, &owner, &id))
+            .await
     }
 
     pub async fn mutate(&self, request: Mutation) -> Result<(Receipt, bool)> {
         self.run(move |db| {
-            let limit = if request.method == "PUT" { protocol::MAX_BODY } else { protocol::MAX_CONTROL };
-            if request.body.len() > limit { return Err(ApiError::too_large()); }
+            let limit = if request.method == "PUT" {
+                protocol::MAX_BODY
+            } else {
+                protocol::MAX_CONTROL
+            };
+            if request.body.len() > limit {
+                return Err(ApiError::too_large());
+            }
             protocol::uuid(&request.operation_id)?;
             let fingerprint = request.fingerprint();
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let now = Utc::now();
-            let prior: Option<(String, String)> = tx.query_row(
-                "SELECT fingerprint, receipt FROM operations WHERE owner=?1 AND operation_id=?2 AND committed_at>=?3",
-                params![request.owner, request.operation_id, now.timestamp()-protocol::RETENTION], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
-            if let Some((original, receipt)) = prior {
-                if fingerprint != original { return Err(ApiError::new(StatusCode::CONFLICT, "idempotency_key_reused")); }
-                return Ok((from_db(&receipt)?, true));
+            let now = clock::now();
+            if let Some(prior) = replay(&tx, &request, &fingerprint, now)? {
+                return Ok((prior.vault.ok_or_else(ApiError::unavailable)?, true));
             }
             let tag = protocol::etag(request.if_match.as_deref())?;
             let old = read_metadata(&tx, &request.owner)?;
-            let timestamp = now.to_rfc3339_opts(SecondsFormat::Secs, true);
+            let timestamp = clock::wire_timestamp(now)?;
             let (meta, receipt, snapshot) = match (request.method.as_str(), request.path.as_str()) {
                 ("PUT", "/v1/me/vault/snapshot") => {
-                    let upload: Snapshot = serde_json::from_slice(&request.body).map_err(|_| ApiError::invalid())?;
-                    let size = upload.validate(&request.owner)?;
-                    if upload.operation_id != request.operation_id { return Err(ApiError::invalid()); }
-                    if old.state == "active" && upload.kind == UploadKind::Snapshot && old.key_id.as_ref() != Some(&upload.key_id) {
-                        return Err(ApiError::conflict("key_epoch_changed", &old.revision));
-                    }
-                    check_cas(&old, tag, &upload.base_revision)?;
-                    match upload.kind {
-                        UploadKind::Create => {
-                            if old.state == "active" { return Err(ApiError::conflict("vault_exists", &old.revision)); }
-                            remember(&tx, &request.owner, "vault", &upload.vault_id, "invalid_crypto_header")?;
-                            remember_epoch(&tx, &request.owner, &upload)?;
-                        }
-                        UploadKind::Snapshot | UploadKind::PasswordChange => {
-                            if old.state != "active" { return Err(state_conflict(&old)); }
-                            if old.vault_id.as_ref() != Some(&upload.vault_id) { return Err(ApiError::conflict("revision_conflict", &old.revision)); }
-                            let prior: Vec<u8> = tx.query_row("SELECT snapshot FROM vaults WHERE owner=?1", [&request.owner], |r| r.get(0))?;
-                            let prior: Snapshot = serde_json::from_slice(&prior).map_err(|_| ApiError::unavailable())?;
-                            if upload.kind == UploadKind::Snapshot {
-                                if upload.kdf.salt != prior.kdf.salt { return Err(ApiError::conflict("key_epoch_changed", &old.revision)); }
-                            } else {
-                                if upload.key_id == prior.key_id || upload.kdf.salt == prior.kdf.salt {
-                                    return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid_crypto_header"));
-                                }
-                                remember_epoch(&tx, &request.owner, &upload)?;
-                            }
-                        }
-                    }
-                    remember(&tx, &request.owner, &format!("nonce:{}", upload.key_id), &upload.nonce, "invalid_crypto_header")?;
-                    let meta = Metadata {
-                        protocol_version: 1, state: "active".into(), owner_github_id: request.owner.clone(), revision: upload.revision.clone(),
-                        vault_id: Some(upload.vault_id.clone()), key_id: Some(upload.key_id), updated_at: Some(timestamp.clone()),
-                        payload_schema_version: Some(1), ciphertext_bytes: size, ciphertext_sha256: Some(upload.ciphertext_sha256.clone()),
-                        last_operation_id: Some(request.operation_id.clone()),
-                    };
-                    let receipt = Receipt { operation_id: request.operation_id.clone(), status: "committed".into(), kind: upload.kind.as_str().into(),
-                        committed_revision: upload.revision, committed_at: timestamp, vault_id: upload.vault_id,
-                        ciphertext_sha256: Some(upload.ciphertext_sha256) };
-                    (meta, receipt, Some(request.body))
+                    let upload: Snapshot =
+                        serde_json::from_slice(&request.body).map_err(|_| ApiError::invalid())?;
+                    let (meta, receipt) =
+                        prepare_vault_upload(&tx, &request, &old, tag, &upload, &timestamp, false)?;
+                    (meta, receipt, Some(&request.body[..]))
                 }
                 ("DELETE", "/v1/me/vault") => {
-                    let delete: DeleteRequest = serde_json::from_slice(&request.body).map_err(|_| ApiError::invalid())?;
-                    if delete.protocol_version != 1 { return Err(ApiError::new(StatusCode::BAD_REQUEST, "unsupported_protocol")); }
+                    let delete: DeleteRequest =
+                        serde_json::from_slice(&request.body).map_err(|_| ApiError::invalid())?;
+                    if delete.protocol_version != 1 {
+                        return Err(ApiError::new(
+                            StatusCode::BAD_REQUEST,
+                            "unsupported_protocol",
+                        ));
+                    }
                     protocol::uuid(&delete.expected_vault_id)?;
                     protocol::uuid(&delete.operation_id)?;
                     protocol::revision(&delete.base_revision)?;
-                    if delete.operation_id != request.operation_id { return Err(ApiError::invalid()); }
+                    if delete.operation_id != request.operation_id {
+                        return Err(ApiError::invalid());
+                    }
                     check_cas(&old, tag, &delete.base_revision)?;
-                    if old.state != "active" { return Err(state_conflict(&old)); }
-                    if old.vault_id.as_ref() != Some(&delete.expected_vault_id) { return Err(ApiError::conflict("revision_conflict", &old.revision)); }
-                    let next = protocol::revision(&old.revision)?.checked_add(1).ok_or_else(|| ApiError::conflict("revision_exhausted", &old.revision))?.to_string();
-                    let meta = Metadata { protocol_version: 1, state: "deleted".into(), owner_github_id: request.owner.clone(), revision: next.clone(),
-                        vault_id: old.vault_id, key_id: None, updated_at: Some(timestamp.clone()), payload_schema_version: None,
-                        ciphertext_bytes: 0, ciphertext_sha256: None, last_operation_id: Some(request.operation_id.clone()) };
-                    let receipt = Receipt { operation_id: request.operation_id.clone(), status: "committed".into(), kind: "delete".into(),
-                        committed_revision: next, committed_at: timestamp, vault_id: delete.expected_vault_id, ciphertext_sha256: None };
+                    if old.state != "active" {
+                        return Err(state_conflict(&old));
+                    }
+                    if old.vault_id.as_ref() != Some(&delete.expected_vault_id) {
+                        return Err(ApiError::conflict("revision_conflict", &old.revision));
+                    }
+                    tx.execute("DELETE FROM service_usage WHERE owner=?1", [&request.owner])?;
+                    let next = protocol::revision(&old.revision)?
+                        .checked_add(1)
+                        .ok_or_else(|| ApiError::conflict("revision_exhausted", &old.revision))?
+                        .to_string();
+                    let meta = Metadata {
+                        protocol_version: 1,
+                        state: "deleted".into(),
+                        owner_github_id: request.owner.clone(),
+                        revision: next.clone(),
+                        vault_id: old.vault_id,
+                        key_id: None,
+                        updated_at: Some(timestamp.clone()),
+                        payload_schema_version: None,
+                        ciphertext_bytes: 0,
+                        ciphertext_sha256: None,
+                        last_operation_id: Some(request.operation_id.clone()),
+                    };
+                    let receipt = Receipt {
+                        operation_id: request.operation_id.clone(),
+                        status: "committed".into(),
+                        kind: "delete".into(),
+                        committed_revision: next,
+                        committed_at: timestamp,
+                        vault_id: delete.expected_vault_id,
+                        ciphertext_sha256: None,
+                    };
                     (meta, receipt, None)
                 }
                 _ => return Err(ApiError::invalid()),
             };
-            tx.execute("INSERT INTO vaults(owner, metadata, snapshot) VALUES(?1,?2,?3) ON CONFLICT(owner) DO UPDATE SET metadata=excluded.metadata,snapshot=excluded.snapshot",
-                params![request.owner, serde_json::to_string(&meta).map_err(|_| ApiError::unavailable())?, snapshot])?;
-            tx.execute("INSERT INTO operations(owner,operation_id,fingerprint,receipt,committed_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(owner,operation_id) DO UPDATE SET fingerprint=excluded.fingerprint,receipt=excluded.receipt,committed_at=excluded.committed_at",
-                params![request.owner, request.operation_id, fingerprint, serde_json::to_string(&receipt).map_err(|_| ApiError::unavailable())?, now.timestamp()])?;
+            write_vault(&tx, &meta, snapshot)?;
+            write_operation(
+                &tx,
+                OperationRoute::Vault,
+                &request.owner,
+                &fingerprint,
+                &receipt,
+                now,
+            )?;
             tx.commit()?;
             Ok((receipt, false))
-        }).await
+        })
+        .await
     }
 
     pub async fn issue_session(
@@ -250,7 +259,7 @@ impl Store {
                 )
                 .optional()?;
             match row {
-                Some((owner, expires)) if expires > Utc::now().timestamp() => Ok(owner),
+                Some((owner, expires)) if expires > clock::now() => Ok(owner),
                 Some(_) => Err(ApiError::new(StatusCode::UNAUTHORIZED, "session_expired")),
                 None => Err(ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated")),
             }
@@ -262,7 +271,7 @@ impl Store {
         self.run(move |db| {
             let changed = db.execute(
                 "DELETE FROM sessions WHERE token_hash=?1 AND expires_at>?2",
-                params![token_hash, Utc::now().timestamp()],
+                params![token_hash, clock::now()],
             )?;
             if changed != 1 {
                 return Err(ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated"));
@@ -305,9 +314,13 @@ impl Store {
     pub async fn maintain(&self) -> Result<()> {
         self.run(|db| {
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let now = Utc::now().timestamp();
+            let now = clock::now();
             tx.execute(
                 "DELETE FROM operations WHERE committed_at<?1",
+                [now - protocol::RETENTION],
+            )?;
+            tx.execute(
+                "DELETE FROM service_usage_operations WHERE committed_at<?1",
                 [now - protocol::RETENTION],
             )?;
             tx.execute("DELETE FROM sessions WHERE expires_at<?1", [now - 900])?;
@@ -367,4 +380,214 @@ fn remember(
 fn remember_epoch(db: &Connection, owner: &str, upload: &Snapshot) -> Result<()> {
     remember(db, owner, "key", &upload.key_id, "invalid_crypto_header")?;
     remember(db, owner, "salt", &upload.kdf.salt, "invalid_crypto_header")
+}
+
+fn remember_nonce(db: &Connection, owner: &str, key_id: &str, nonce: &str) -> Result<()> {
+    remember(
+        db,
+        owner,
+        &format!("nonce:{key_id}"),
+        nonce,
+        "invalid_crypto_header",
+    )
+}
+
+// Call within the same write transaction that will persist the snapshots and receipts.
+fn prepare_vault_upload(
+    tx: &Connection,
+    request: &Mutation,
+    old: &Metadata,
+    tag: &str,
+    upload: &Snapshot,
+    timestamp: &str,
+    rekeys_usage: bool,
+) -> Result<(Metadata, Receipt)> {
+    let size = upload.validate(&request.owner)?;
+    if upload.operation_id != request.operation_id {
+        return Err(ApiError::invalid());
+    }
+    if old.state == "active"
+        && upload.kind == UploadKind::Snapshot
+        && old.key_id.as_ref() != Some(&upload.key_id)
+    {
+        return Err(ApiError::conflict("key_epoch_changed", &old.revision));
+    }
+    check_cas(old, tag, &upload.base_revision)?;
+    match upload.kind {
+        UploadKind::Create => {
+            if old.state == "active" {
+                return Err(ApiError::conflict("vault_exists", &old.revision));
+            }
+            remember(
+                tx,
+                &request.owner,
+                "vault",
+                &upload.vault_id,
+                "invalid_crypto_header",
+            )?;
+            remember_epoch(tx, &request.owner, upload)?;
+        }
+        UploadKind::Snapshot | UploadKind::PasswordChange => {
+            if old.state != "active" {
+                return Err(state_conflict(old));
+            }
+            if old.vault_id.as_ref() != Some(&upload.vault_id) {
+                return Err(ApiError::conflict("revision_conflict", &old.revision));
+            }
+            let prior: Vec<u8> = tx.query_row(
+                "SELECT snapshot FROM vaults WHERE owner=?1",
+                [&request.owner],
+                |r| r.get(0),
+            )?;
+            let prior: Snapshot =
+                serde_json::from_slice(&prior).map_err(|_| ApiError::unavailable())?;
+            if upload.kind == UploadKind::Snapshot {
+                if upload.kdf.salt != prior.kdf.salt {
+                    return Err(ApiError::conflict("key_epoch_changed", &old.revision));
+                }
+            } else {
+                if upload.key_id == prior.key_id || upload.kdf.salt == prior.kdf.salt {
+                    return Err(ApiError::new(
+                        StatusCode::BAD_REQUEST,
+                        "invalid_crypto_header",
+                    ));
+                }
+                if !rekeys_usage && usage::has_snapshot(tx, &request.owner)? {
+                    return Err(ApiError::conflict("key_epoch_changed", &old.revision));
+                }
+                remember_epoch(tx, &request.owner, upload)?;
+            }
+        }
+    }
+    remember_nonce(tx, &request.owner, &upload.key_id, &upload.nonce)?;
+    let meta = Metadata {
+        protocol_version: 1,
+        state: "active".into(),
+        owner_github_id: request.owner.clone(),
+        revision: upload.revision.clone(),
+        vault_id: Some(upload.vault_id.clone()),
+        key_id: Some(upload.key_id.clone()),
+        updated_at: Some(timestamp.into()),
+        payload_schema_version: Some(1),
+        ciphertext_bytes: size,
+        ciphertext_sha256: Some(upload.ciphertext_sha256.clone()),
+        last_operation_id: Some(request.operation_id.clone()),
+    };
+    let receipt = Receipt {
+        operation_id: request.operation_id.clone(),
+        status: "committed".into(),
+        kind: upload.kind.as_str().into(),
+        committed_revision: upload.revision.clone(),
+        committed_at: timestamp.into(),
+        vault_id: upload.vault_id.clone(),
+        ciphertext_sha256: Some(upload.ciphertext_sha256.clone()),
+    };
+    Ok((meta, receipt))
+}
+
+fn write_vault(db: &Connection, meta: &Metadata, snapshot: Option<&[u8]>) -> Result<()> {
+    db.execute("INSERT INTO vaults(owner, metadata, snapshot) VALUES(?1,?2,?3) ON CONFLICT(owner) DO UPDATE SET metadata=excluded.metadata,snapshot=excluded.snapshot",
+        params![meta.owner_github_id, to_db(meta)?, snapshot])?;
+    Ok(())
+}
+
+fn to_db(value: &impl serde::Serialize) -> Result<String> {
+    serde_json::to_string(value).map_err(|_| ApiError::unavailable())
+}
+
+#[derive(Clone, Copy)]
+enum OperationRoute {
+    Vault,
+    Usage,
+}
+
+impl OperationRoute {
+    fn table(self) -> &'static str {
+        match self {
+            Self::Vault => "operations",
+            Self::Usage => "service_usage_operations",
+        }
+    }
+}
+
+fn read_operation(
+    db: &Connection,
+    route: OperationRoute,
+    owner: &str,
+    id: &str,
+    now: i64,
+) -> Result<Option<(String, String)>> {
+    let query = format!(
+        "SELECT fingerprint, receipt FROM {} WHERE owner=?1 AND operation_id=?2 AND committed_at>=?3",
+        route.table()
+    );
+    Ok(db
+        .query_row(
+            &query,
+            params![owner, id, now - protocol::RETENTION],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?)
+}
+
+fn operation(db: &Connection, route: OperationRoute, owner: &str, id: &str) -> Result<Receipt> {
+    match read_operation(db, route, owner, id, clock::now())? {
+        Some((_, receipt)) => from_db(&receipt),
+        None => Err(ApiError::new(StatusCode::NOT_FOUND, "operation_not_found")),
+    }
+}
+
+struct PriorReceipts {
+    vault: Option<Receipt>,
+    usage: Option<Receipt>,
+}
+
+fn replay(
+    db: &Connection,
+    request: &Mutation,
+    fingerprint: &str,
+    now: i64,
+) -> Result<Option<PriorReceipts>> {
+    let prior = |route| -> Result<Option<Receipt>> {
+        match read_operation(db, route, &request.owner, &request.operation_id, now)? {
+            Some((original, receipt)) if original == fingerprint => Ok(Some(from_db(&receipt)?)),
+            Some(_) => Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "idempotency_key_reused",
+            )),
+            None => Ok(None),
+        }
+    };
+    let vault = prior(OperationRoute::Vault)?;
+    let usage = prior(OperationRoute::Usage)?;
+    Ok(if vault.is_some() || usage.is_some() {
+        Some(PriorReceipts { vault, usage })
+    } else {
+        None
+    })
+}
+
+fn write_operation(
+    db: &Connection,
+    route: OperationRoute,
+    owner: &str,
+    fingerprint: &str,
+    receipt: &Receipt,
+    now: i64,
+) -> Result<()> {
+    let query = format!(
+        "INSERT INTO {}(owner,operation_id,fingerprint,receipt,committed_at) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(owner,operation_id) DO UPDATE SET fingerprint=excluded.fingerprint,receipt=excluded.receipt,committed_at=excluded.committed_at",
+        route.table()
+    );
+    db.execute(
+        &query,
+        params![
+            owner,
+            receipt.operation_id,
+            fingerprint,
+            to_db(receipt)?,
+            now
+        ],
+    )?;
+    Ok(())
 }

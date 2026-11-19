@@ -440,7 +440,7 @@ async fn limits_expiry_and_auth_exchange_are_real() {
     let db = rusqlite::Connection::open(f.dir.path().join("sync.db")).unwrap();
     db.execute(
         "UPDATE sessions SET expires_at=?1",
-        [chrono::Utc::now().timestamp() - 1],
+        [time::OffsetDateTime::now_utc().unix_timestamp() - 1],
     )
     .unwrap();
     assert_eq!(f.meta(&token).await.code(), "session_expired");

@@ -70,18 +70,56 @@ def vector(password: str, index: int) -> dict:
     }
 
 
+def usage_vector() -> dict:
+    password = "云同步Cafe\u0301-Vector2026!"
+    normalized = unicodedata.normalize("NFC", password)
+    salt = bytes(range(16))
+    nonce = bytes(range(32, 56))
+    key = hash_secret_raw(normalized.encode(), salt, 3, 65536, 4, 32, Type.ID, 19)
+    snapshot = {
+        "protocolVersion": 1, "payloadSchemaVersion": 1, "ownerGithubId": "12345",
+        "vaultId": "be406ca5-37fa-4b26-9a9a-74c1aad48eae",
+        "keyId": "7250d1bd-5a3e-42b0-91dc-df0cb0608221",
+        "baseRevision": "9007199254740992", "revision": "9007199254740993",
+        "operationId": "6141fa7e-d06f-47b4-9b16-ec92f4083685",
+        "aead": "xchacha20poly1305-ietf", "codec": "json-pad64k-v1", "nonce": b64(nonce),
+    }
+    aad = compact([
+        "openless-cloud-sync", 1, "service-usage", snapshot["ownerGithubId"], snapshot["vaultId"],
+        snapshot["keyId"], snapshot["baseRevision"], snapshot["revision"], snapshot["operationId"],
+        1, snapshot["aead"], snapshot["codec"],
+    ])
+    document = {"version": 1, "records": [{
+        "id": "d7823e4d-19fa-4780-b605-f9abf2d3d5e3", "occurredAtMs": 1795104000000,
+        "kind": "llm", "purpose": "translation", "outcome": "succeeded",
+        "provider": "fixture-provider", "inputAccounting": "inclusive", "inputTokens": 10,
+    }]}
+    plaintext = compact(document)
+    padding_length = 65536 - 4 - len(plaintext)
+    frame = struct.pack(">I", len(plaintext)) + plaintext + bytes(i % 251 for i in range(padding_length))
+    ciphertext = encrypt(frame, aad, nonce, key)
+    assert decrypt(ciphertext, aad, nonce, key) == frame
+    snapshot["ciphertext"] = b64(ciphertext)
+    snapshot["ciphertextSha256"] = hashlib.sha256(ciphertext).hexdigest()
+    return {"formatVersion": 1, "testOnly": True, "passwordInput": password, "salt": b64(salt),
+            "derivedKeyHex": key.hex(), "aadUtf8Hex": aad.hex(), "plaintextJsonUtf8Hex": plaintext.hex(),
+            "recoveredJson": document, "padding": {"pattern": "index-mod-251", "length": padding_length},
+            "snapshot": snapshot}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--write", action="store_true", help="Regenerate fixed public TEST fixtures")
     args = parser.parse_args()
     expected = {"formatVersion": 1, "vectors": [vector("云同步Cafe\u0301-Vector2026!", 0), vector("测试A9-Interoperability!", 1)]}
-    path = ROOT / "tests/vectors/v1.json"
-    if args.write:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(expected, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    else:
-        assert json.loads(path.read_text(encoding="utf-8")) == expected, "Independent implementation disagrees with fixture"
-    print("PASS: reference Argon2 + libsodium; 2 fixed v1 vectors")
+    for name, value in [("v1.json", expected), ("service-usage-v1.json", usage_vector())]:
+        path = ROOT / "tests/vectors" / name
+        if args.write:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        else:
+            assert json.loads(path.read_text(encoding="utf-8")) == value, f"Independent implementation disagrees with {name}"
+    print("PASS: reference Argon2 + libsodium; 2 fixed V1 vectors and 1 fixed service Usage vector")
 
 
 if __name__ == "__main__":

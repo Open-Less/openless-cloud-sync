@@ -30,7 +30,7 @@ cargo build --release --locked
 
 ## 开发与验证
 
-需要 Rust ≥ 1.88、C 编译器和 CMake。Python 验证环境建议 3.14；生产备份脚本只需系统 Python 3.9+。
+需要 Rust ≥ 1.89、C 编译器和 CMake。Python 验证环境建议 3.14；生产备份脚本只需系统 Python 3.9+。
 
 ```bash
 cargo fmt --check

@@ -1,9 +1,11 @@
 use crate::{
     auth::{self, IdentityVerifier},
+    clock,
     config::Config,
     error::{ApiError, Result},
     protocol,
     store::{Mutation, Store},
+    usage,
 };
 use axum::{
     Json, Router,
@@ -137,7 +139,7 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
     } else {
         peer
     };
-    let now = chrono::Utc::now().timestamp();
+    let now = clock::now();
     if method == Method::OPTIONS {
         if origin.is_none() {
             return Err(ApiError::invalid());
@@ -175,7 +177,7 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
         );
         return Ok(response);
     }
-    if path == "/v1/capabilities" && method == Method::GET {
+    if matches!(path.as_str(), "/v1/capabilities" | usage::FEATURE) && method == Method::GET {
         state
             .store
             .rate(
@@ -186,6 +188,11 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
             )
             .await?;
         read_body(request, protocol::MAX_CONTROL, false).await?;
+        if path == usage::FEATURE {
+            return Ok(Json(serde_json::json!({"protocolVersion":1,
+                "maxCiphertextBytes":usage::MAX_CIPHERTEXT,"maxBodyBytes":usage::MAX_BODY}))
+            .into_response());
+        }
         return Ok(Json(serde_json::json!({"protocolVersion":1,"cryptoProfile":protocol::PROFILE,
             "githubClientId":state.config.github_client_id,"maxHttpBodyBytes":protocol::MAX_BODY,
             "maxCiphertextBytes":protocol::MAX_CIPHERTEXT,"maxPlaintextJsonBytes":protocol::MAX_JSON,
@@ -214,7 +221,11 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
     let known_route = (path == "/v1/auth/session" && method == Method::DELETE)
         || (path == "/v1/me/vault" && matches!(method, Method::GET | Method::DELETE))
         || (path == "/v1/me/vault/snapshot" && matches!(method, Method::GET | Method::PUT))
-        || (path.starts_with("/v1/me/operations/") && method == Method::GET);
+        || (path.starts_with("/v1/me/operations/") && method == Method::GET)
+        || (path == usage::RESOURCE && method == Method::GET)
+        || (path == usage::SNAPSHOT && matches!(method, Method::GET | Method::PUT))
+        || (path == usage::ROTATE && method == Method::PUT)
+        || (path.starts_with(usage::OPERATIONS) && method == Method::GET);
     if !known_route {
         return Err(ApiError::new(StatusCode::NOT_FOUND, "invalid_request"));
     }
@@ -254,28 +265,42 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
             state.store.revoke(token_hash).await?;
             Ok(StatusCode::NO_CONTENT.into_response())
         }
-        ("GET", "/v1/me/vault") => {
+        ("GET", "/v1/me/vault" | usage::RESOURCE) => {
+            let is_usage = path == usage::RESOURCE;
             let condition = one_header(headers, "if-none-match")?.map(str::to_owned);
             if let Some(tag) = &condition {
-                protocol::etag(Some(tag))?;
+                if is_usage {
+                    usage::etag(Some(tag))?;
+                } else {
+                    protocol::etag(Some(tag))?;
+                }
             }
             read_body(request, protocol::MAX_CONTROL, false).await?;
-            let metadata = state.store.metadata(owner).await?;
-            let tag = metadata.etag();
-            let mut response = if condition.as_ref() == Some(&tag) {
-                StatusCode::NOT_MODIFIED.into_response()
+            if is_usage {
+                let metadata = state.store.usage_metadata(owner).await?;
+                let tag = metadata.etag();
+                Ok(conditional_json(metadata, tag, condition))
             } else {
-                Json(metadata).into_response()
-            };
-            response
-                .headers_mut()
-                .insert("etag", tag.parse().expect("generated ETag"));
-            Ok(response)
+                let metadata = state.store.metadata(owner).await?;
+                let tag = metadata.etag();
+                Ok(conditional_json(metadata, tag, condition))
+            }
         }
-        ("GET", "/v1/me/vault/snapshot") => {
-            let tag = protocol::etag(one_header(headers, "if-match")?)?.to_owned();
+        ("GET", "/v1/me/vault/snapshot" | usage::SNAPSHOT) => {
+            let is_usage = path == usage::SNAPSHOT;
+            let header = one_header(headers, "if-match")?;
+            let tag = if is_usage {
+                usage::etag(header)?
+            } else {
+                protocol::etag(header)?
+            }
+            .to_owned();
             read_body(request, protocol::MAX_CONTROL, false).await?;
-            let bytes = state.store.download(owner, tag.clone()).await?;
+            let bytes = if is_usage {
+                state.store.usage_download(owner, tag.clone()).await?
+            } else {
+                state.store.download(owner, tag.clone()).await?
+            };
             let mut response = Body::from(bytes).into_response();
             response
                 .headers_mut()
@@ -285,32 +310,45 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
                 .insert("etag", tag.parse().expect("validated ETag"));
             Ok(response)
         }
-        ("PUT", "/v1/me/vault/snapshot") | ("DELETE", "/v1/me/vault") => {
+        ("PUT", "/v1/me/vault/snapshot" | usage::SNAPSHOT | usage::ROTATE)
+        | ("DELETE", "/v1/me/vault") => {
             let tag = one_header(headers, "if-match")?.map(str::to_owned);
             let id = one_header(headers, "idempotency-key")?
                 .ok_or_else(ApiError::invalid)?
                 .to_owned();
             protocol::uuid(&id)?;
-            let bytes = read_body(
-                request,
-                if method == Method::PUT {
-                    protocol::MAX_BODY
-                } else {
-                    protocol::MAX_CONTROL
-                },
-                true,
-            )
-            .await?;
-            let (receipt, replayed) = state
-                .store
-                .mutate(Mutation::new(owner, method.as_str(), &path, tag, id, bytes))
-                .await?;
-            let mut response = Json(receipt).into_response();
-            response.headers_mut().insert(
-                "idempotency-replayed",
-                HeaderValue::from_static(if replayed { "true" } else { "false" }),
-            );
-            Ok(response)
+            let limit = if path == usage::SNAPSHOT {
+                usage::MAX_BODY
+            } else if method == Method::PUT {
+                protocol::MAX_BODY
+            } else {
+                protocol::MAX_CONTROL
+            };
+            let bytes = read_body(request, limit, true).await?;
+            let mutation = Mutation::new(owner, method.as_str(), &path, tag, id, bytes);
+            match path.as_str() {
+                usage::SNAPSHOT => {
+                    let (receipt, replayed) = state
+                        .store
+                        .usage_mutate(mutation, state.config.usage_mode)
+                        .await?;
+                    Ok(receipt_json(receipt, replayed))
+                }
+                usage::ROTATE => {
+                    let (receipt, replayed) = state.store.rotate_usage(mutation).await?;
+                    Ok(receipt_json(receipt, replayed))
+                }
+                _ => {
+                    let (receipt, replayed) = state.store.mutate(mutation).await?;
+                    Ok(receipt_json(receipt, replayed))
+                }
+            }
+        }
+        ("GET", _) if path.starts_with(usage::OPERATIONS) => {
+            let id = path[usage::OPERATIONS.len()..].to_owned();
+            protocol::uuid(&id)?;
+            read_body(request, protocol::MAX_CONTROL, false).await?;
+            Ok(Json(state.store.usage_operation(owner, id).await?).into_response())
         }
         _ => {
             let id = path
@@ -322,6 +360,31 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
             Ok(Json(state.store.operation(owner, id).await?).into_response())
         }
     }
+}
+
+fn conditional_json(
+    value: impl serde::Serialize,
+    tag: String,
+    condition: Option<String>,
+) -> Response {
+    let mut response = if condition.as_ref() == Some(&tag) {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        Json(value).into_response()
+    };
+    response
+        .headers_mut()
+        .insert("etag", tag.parse().expect("generated ETag"));
+    response
+}
+
+fn receipt_json(receipt: impl serde::Serialize, replayed: bool) -> Response {
+    let mut response = Json(receipt).into_response();
+    response.headers_mut().insert(
+        "idempotency-replayed",
+        HeaderValue::from_static(if replayed { "true" } else { "false" }),
+    );
+    response
 }
 
 fn one_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>> {
