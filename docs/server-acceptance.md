@@ -54,3 +54,7 @@
 8. 灾备：隔离环境验证恢复与版本/墓碑核对；定时清理和供应商快照不超过公开的 7 天。
 
 之后再进入应用 A01–A13：默认关闭与首次提示、完整导出和排除项、凭据/文件恢复失败、崩溃恢复、三方合并、Windows/macOS 差异。它们属于 `1-app/`，本次没有修改应用。项目许可证已确认为 AGPL-3.0-only；公开启用还需需求指定的独立安全审查。
+
+## Unreleased service Usage gates
+
+The repository tests use synthetic IDs, test-only keys, an isolated SQLite database, and the real HTTP router. They cover a standalone feature probe, unchanged settings and history transport, encrypted Usage joins and no echo (10+7=17; +4/+2=23), CAS races, exact replay and cross-route collisions, paired rotation, transaction failure, migrated database continuity and write-preserving rescue. The fixed Usage AAD fixture is independently checked with RustCrypto and libsodium. These are not two shipped-app or cloud-staging results. Capacity/overflow with representative data, actual release-to-release device restore, privacy and consent, and the operator's staging/rescue rehearsal are still gates; see [service Usage](service-usage.md) and [isolated staging](deployment.md#unreleased-service-usage-isolated-staging-and-preservation-first-rescue).

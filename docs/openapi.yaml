@@ -269,6 +269,7 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
     delete:
       operationId: deleteVault
+      description: Deletion also atomically purges any opaque Usage snapshot in this vault.
       summary: 按版本删除密文并保留墓碑，防止旧设备自动复活
       parameters:
       - name: If-Match
@@ -547,6 +548,7 @@ paths:
                 $ref: '#/components/schemas/ErrorEnvelope'
     put:
       operationId: uploadSnapshot
+      description: A valid V1-only password change returns the existing 409 key_epoch_changed if an encrypted Usage snapshot exists. Ordinary writes and successful response shapes are unchanged.
       summary: 创建、更新或改密码；前置版本与幂等回执原子提交
       parameters:
       - name: If-Match
@@ -807,7 +809,435 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
+  /v1/features/service-usage:
+    get:
+      operationId: getServiceUsageFeature
+      summary: Probe the optional service Usage wire protocol on the existing HTTPS origin
+      security: []
+      responses:
+        '200':
+          description: Exact service Usage protocol and limits
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageFeature'
+        '400':
+          $ref: '#/components/responses/UsageErrorInvalid'
+        '404':
+          description: An older server returns the expected invalid_request envelope for the unsupported probe path.
+          headers:
+            Cache-Control:
+              schema: {type: string, const: no-store}
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '413':
+          $ref: '#/components/responses/UsageErrorTooLarge'
+        '415':
+          $ref: '#/components/responses/UsageErrorMediaType'
+        '429':
+          $ref: '#/components/responses/UsageErrorRateLimited'
+        '503':
+          $ref: '#/components/responses/UsageErrorUnavailable'
+  /v1/me/vault/usage:
+    get:
+      operationId: getServiceUsageMetadata
+      summary: Read opaque Usage metadata for the active vault and key epoch
+      parameters:
+      - name: If-None-Match
+        in: header
+        required: false
+        schema:
+          $ref: '#/components/schemas/UsageETag'
+      responses:
+        '200':
+          description: Usage metadata, empty or active
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            ETag:
+              schema:
+                $ref: '#/components/schemas/UsageETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageMetadata'
+        '304':
+          description: Usage metadata unchanged
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            ETag:
+              schema:
+                $ref: '#/components/schemas/UsageETag'
+        '400':
+          $ref: '#/components/responses/UsageErrorInvalid'
+        '401':
+          $ref: '#/components/responses/UsageErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/UsageErrorNotFound'
+        '413':
+          $ref: '#/components/responses/UsageErrorTooLarge'
+        '415':
+          $ref: '#/components/responses/UsageErrorMediaType'
+        '429':
+          $ref: '#/components/responses/UsageErrorRateLimited'
+        '503':
+          $ref: '#/components/responses/UsageErrorUnavailable'
+  /v1/me/vault/usage/snapshot:
+    get:
+      operationId: downloadServiceUsageSnapshot
+      summary: Download the exact opaque Usage snapshot selected by the strong Usage ETag
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/UsageETag'
+      responses:
+        '200':
+          description: Opaque Usage snapshot
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            ETag:
+              schema:
+                $ref: '#/components/schemas/UsageETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageSnapshot'
+        '400':
+          $ref: '#/components/responses/UsageErrorInvalid'
+        '401':
+          $ref: '#/components/responses/UsageErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/UsageErrorUsageNotFound'
+        '412':
+          $ref: '#/components/responses/UsageErrorCasConflict'
+        '413':
+          $ref: '#/components/responses/UsageErrorTooLarge'
+        '415':
+          $ref: '#/components/responses/UsageErrorMediaType'
+        '428':
+          $ref: '#/components/responses/UsageErrorPreconditionRequired'
+        '429':
+          $ref: '#/components/responses/UsageErrorRateLimited'
+        '503':
+          $ref: '#/components/responses/UsageErrorUnavailable'
+    put:
+      operationId: uploadServiceUsageSnapshot
+      summary: Replace the Usage snapshot independently of the V1 snapshot using Usage CAS
+      description: The authenticated active vault and epoch must match. Standalone HTTP body maximum is 1572864 bytes. Replay is byte-exact and precedes CAS.
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/UsageETag'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV4'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsageSnapshot'
+      responses:
+        '200':
+          description: Committed Usage receipt, possibly replayed
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Idempotency-Replayed:
+              schema:
+                type: string
+                enum: ["true", "false"]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReceipt'
+        '400':
+          $ref: '#/components/responses/UsageErrorInvalid'
+        '401':
+          $ref: '#/components/responses/UsageErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/UsageErrorOwnerMismatch'
+        '409':
+          $ref: '#/components/responses/UsageErrorConflict'
+        '412':
+          $ref: '#/components/responses/UsageErrorCasConflict'
+        '413':
+          $ref: '#/components/responses/UsageErrorTooLarge'
+        '415':
+          $ref: '#/components/responses/UsageErrorMediaType'
+        '428':
+          $ref: '#/components/responses/UsageErrorPreconditionRequired'
+        '429':
+          $ref: '#/components/responses/UsageErrorRateLimited'
+        '503':
+          $ref: '#/components/responses/UsageErrorUnavailable'
+  /v1/me/vault/usage/operations/{operationId}:
+    get:
+      operationId: getServiceUsageOperation
+      summary: Read a committed Usage-only or dual-rotation receipt for up to seven days
+      parameters:
+      - name: operationId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV4'
+      responses:
+        '200':
+          description: Committed Usage receipt
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageReceipt'
+        '400':
+          $ref: '#/components/responses/UsageErrorInvalid'
+        '401':
+          $ref: '#/components/responses/UsageErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/UsageErrorNotFound'
+        '413':
+          $ref: '#/components/responses/UsageErrorTooLarge'
+        '415':
+          $ref: '#/components/responses/UsageErrorMediaType'
+        '429':
+          $ref: '#/components/responses/UsageErrorRateLimited'
+        '503':
+          $ref: '#/components/responses/UsageErrorUnavailable'
+  /v1/me/vault/usage/password-change:
+    put:
+      operationId: rotateVaultPasswordWithServiceUsage
+      summary: Atomically re-encrypt the V1 snapshot and an existing Usage snapshot in a new key epoch
+      description: The If-Match header is the V1 vault ETag. The shared operation ID matches both envelopes. The HTTP body maximum is 25165824 bytes. Both CAS conditions and ciphertext replacements commit together.
+      parameters:
+      - name: If-Match
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/StrongETag'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          $ref: '#/components/schemas/UuidV4'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsageRotationRequest'
+      responses:
+        '200':
+          description: Committed paired receipts, possibly replayed
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Idempotency-Replayed:
+              schema:
+                type: string
+                enum: ["true", "false"]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageRotationReceipt'
+        '400':
+          $ref: '#/components/responses/UsageErrorInvalid'
+        '401':
+          $ref: '#/components/responses/UsageErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/UsageErrorOwnerMismatch'
+        '409':
+          $ref: '#/components/responses/UsageErrorUsageConflict'
+        '412':
+          $ref: '#/components/responses/UsageErrorCasConflict'
+        '413':
+          $ref: '#/components/responses/UsageErrorTooLarge'
+        '415':
+          $ref: '#/components/responses/UsageErrorMediaType'
+        '428':
+          $ref: '#/components/responses/UsageErrorPreconditionRequired'
+        '429':
+          $ref: '#/components/responses/UsageErrorRateLimited'
+        '503':
+          $ref: '#/components/responses/UsageErrorUnavailable'
 components:
+  responses:
+    UsageErrorInvalid:
+      description: invalid_request, invalid_crypto_header or unsupported_protocol as applicable
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorTooLarge:
+      description: Payload exceeds the applicable HTTP or ciphertext limit
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorMediaType:
+      description: Unsupported media type or content encoding
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorRateLimited:
+      description: Request limit reached
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 86400
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorUnavailable:
+      description: Service unavailable; ordinary Usage writes may be paused in rescue mode
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorUnauthorized:
+      description: Authentication required or session expired
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorNotFound:
+      description: The requested resource is absent
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorUsageNotFound:
+      description: The requested resource is absent
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UsageErrorEnvelope'
+    UsageErrorCasConflict:
+      description: Revision or strong ETag conflict
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorPreconditionRequired:
+      description: If-Match is required
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorOwnerMismatch:
+      description: The envelope account differs from the authenticated numeric GitHub ID
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorConflict:
+      description: Operation ID collision, vault state, key epoch, revision exhaustion or empty Usage as applicable
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    UsageErrorUsageConflict:
+      description: Operation ID collision, vault state, key epoch, revision exhaustion or empty Usage as applicable
+      headers:
+        Cache-Control:
+          schema:
+            type: string
+            const: no-store
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UsageErrorEnvelope'
   securitySchemes:
     GithubBearer:
       type: http
@@ -1269,8 +1699,149 @@ components:
               $ref: '#/components/schemas/UuidV4'
             currentRevision:
               $ref: '#/components/schemas/Revision'
+    UsageETag:
+      type: string
+      pattern: '^"usage-v1-[0-9a-f]{64}"$'
+      description: Strong Usage tag including the quotes; opaque and distinct from V1.
+    UsageFeature:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, maxCiphertextBytes, maxBodyBytes]
+      properties:
+        protocolVersion: {type: integer, const: 1}
+        maxCiphertextBytes: {type: integer, const: 1048592}
+        maxBodyBytes: {type: integer, const: 1572864}
+    UsageMetadata:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, state, ownerGithubId, vaultId, keyId, revision, updatedAt, lastOperationId, ciphertextSha256, ciphertextBytes]
+      properties:
+        protocolVersion: {type: integer, const: 1}
+        state: {type: string, enum: [empty, active]}
+        ownerGithubId:
+          $ref: '#/components/schemas/GithubId'
+        vaultId:
+          $ref: '#/components/schemas/UuidV4'
+        keyId:
+          $ref: '#/components/schemas/UuidV4'
+        revision:
+          $ref: '#/components/schemas/Revision'
+        updatedAt: {type: [string, 'null'], format: date-time}
+        lastOperationId:
+          oneOf:
+          - $ref: '#/components/schemas/UuidV4'
+          - type: 'null'
+        ciphertextSha256:
+          oneOf:
+          - $ref: '#/components/schemas/Sha256'
+          - type: 'null'
+        ciphertextBytes: {type: integer}
+      oneOf:
+      - properties:
+          state: {const: empty}
+          revision: {const: '0'}
+          updatedAt: {type: 'null'}
+          lastOperationId: {type: 'null'}
+          ciphertextSha256: {type: 'null'}
+          ciphertextBytes: {const: 0}
+      - properties:
+          state: {const: active}
+          revision:
+            $ref: '#/components/schemas/PositiveRevision'
+          updatedAt: {type: string}
+          lastOperationId: {type: string}
+          ciphertextSha256: {type: string}
+          ciphertextBytes: {minimum: 65552, maximum: 1048592}
+    UsageSnapshot:
+      type: object
+      additionalProperties: false
+      required: [protocolVersion, payloadSchemaVersion, ownerGithubId, vaultId, keyId, baseRevision, revision, operationId, aead, codec, nonce, ciphertextSha256, ciphertext]
+      description: Revision must be baseRevision + 1. The authenticated numeric owner, active vault and key epoch are bound to the request. See service-usage.md for exact AAD, canonical decoding and padding.
+      properties:
+        protocolVersion: {type: integer, const: 1}
+        payloadSchemaVersion: {type: integer, const: 1}
+        ownerGithubId:
+          $ref: '#/components/schemas/GithubId'
+        vaultId:
+          $ref: '#/components/schemas/UuidV4'
+        keyId:
+          $ref: '#/components/schemas/UuidV4'
+        baseRevision:
+          $ref: '#/components/schemas/Revision'
+        revision:
+          $ref: '#/components/schemas/PositiveRevision'
+        operationId:
+          $ref: '#/components/schemas/UuidV4'
+        aead: {type: string, const: xchacha20poly1305-ietf}
+        codec: {type: string, const: json-pad64k-v1}
+        nonce:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{32}$
+          description: CSPRNG 24-byte nonce, canonical unpadded base64url.
+        ciphertextSha256:
+          $ref: '#/components/schemas/Sha256'
+        ciphertext:
+          type: string
+          pattern: ^[A-Za-z0-9_-]+$
+          minLength: 87403
+          maxLength: 1398123
+          description: Canonical unpadded base64url of 1 to 16 padded 65536-byte blocks plus 16-byte AEAD tag.
+    UsageReceipt:
+      allOf:
+      - $ref: '#/components/schemas/OperationReceipt'
+      - properties:
+          kind: {enum: [snapshot, password_change]}
+          ciphertextSha256:
+            $ref: '#/components/schemas/Sha256'
+    UsageRotationRequest:
+      type: object
+      additionalProperties: false
+      required: [vaultSnapshot, usageIfMatch, usageSnapshot]
+      properties:
+        vaultSnapshot:
+          allOf:
+          - $ref: '#/components/schemas/SnapshotUpload'
+          - properties:
+              kind: {const: password_change}
+        usageIfMatch:
+          $ref: '#/components/schemas/UsageETag'
+        usageSnapshot:
+          $ref: '#/components/schemas/UsageSnapshot'
+    UsageRotationReceipt:
+      type: object
+      additionalProperties: false
+      required: [vaultReceipt, usageReceipt]
+      properties:
+        vaultReceipt:
+          allOf:
+          - $ref: '#/components/schemas/OperationReceipt'
+          - properties:
+              kind: {const: password_change}
+        usageReceipt:
+          allOf:
+          - $ref: '#/components/schemas/UsageReceipt'
+          - properties:
+              kind: {const: password_change}
+    UsageErrorEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/ErrorEnvelope'
+      - type: object
+        additionalProperties: false
+        required: [error]
+        properties:
+          error:
+            type: object
+            additionalProperties: false
+            required: [code, message, requestId]
+            properties:
+              code: {const: usage_empty}
+              message: {type: string, minLength: 1, maxLength: 200}
+              requestId:
+                $ref: '#/components/schemas/UuidV4'
+              currentRevision: {const: '0'}
 x-contract-files:
 - requirements.md
 - http-api.md
 - encryption-protocol.md
 - client-integration.md
+- service-usage.md

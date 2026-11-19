@@ -1,5 +1,7 @@
 # 文档入口
 
+[Encrypted service Usage sidecar](service-usage.md) (additive, unreleased) specifies the separate probe, Usage wire contract, and mixed-version gates.
+
 更新：2026-09-26。协议 `1.0-draft.1`；服务端 `0.1.0` 已通过本地与三平台验证，以 AGPL-3.0-only 开源并上线指定账号联调环境；客户端完成后继续真实账号和完整加密同步验收。
 
 | 阅读顺序 | 文档 | 用途 |

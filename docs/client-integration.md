@@ -1,5 +1,7 @@
 # 应用接入与代码接口交接
 
+Unreleased additive contract: [Encrypted service Usage sidecar](service-usage.md). Consent, ledger merge, durable restore and the legacy-safe settings representation are client-side release gates.
+
 状态：待实现接口清单；版本 `1.0-draft.1`。这里定义接手者需要新增或修改的接口，不提供实现代码或架构设计。应用源码路径均相对于 `1-app/openless-all/app/`；本次核对基线为本地 2.0 整合分支的 `f37125da`。
 
 ## 1. 现状与替代边界

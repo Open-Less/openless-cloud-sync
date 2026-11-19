@@ -1,5 +1,7 @@
 # 加密数据协议 v1
 
+Unreleased additive contract: [Usage framing and domain-separated AAD](service-usage.md#cryptography-and-bounds). The existing V1 crypto header and AAD do not change.
+
 状态：合同版本 `1.0-draft.1`；[固定测试向量](../tests/vectors/v1.json) 已由 RustCrypto 与 reference Argon2/libsodium 验证。客户端接入与跨设备验收仍待完成。本文定义字节级互操作要求。HTTP 字段见 [API](http-api.md)；机器定义见 [OpenAPI](openapi.yaml)。
 
 ## 1. 固定密码学配置

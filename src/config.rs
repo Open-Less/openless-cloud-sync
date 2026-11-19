@@ -1,6 +1,12 @@
 use std::{collections::HashSet, env, net::SocketAddr, path::PathBuf};
 use zeroize::Zeroizing;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum UsageMode {
+    Enabled,
+    Rescue,
+}
+
 // Deliberately no Debug: configuration contains an OAuth client secret.
 pub struct Config {
     pub bind: SocketAddr,
@@ -11,6 +17,7 @@ pub struct Config {
     pub allowed_github_ids: HashSet<String>,
     pub public_access: bool,
     pub require_https_proxy: bool,
+    pub usage_mode: UsageMode,
 }
 
 impl Config {
@@ -64,6 +71,11 @@ impl Config {
                 return Err("Origin must be an exact HTTPS origin");
             }
         }
+        let usage_mode = match env::var("SYNC_SERVICE_USAGE_MODE").as_deref() {
+            Ok("enabled") => UsageMode::Enabled,
+            Ok("rescue") | Err(env::VarError::NotPresent) => UsageMode::Rescue,
+            _ => return Err("invalid SYNC_SERVICE_USAGE_MODE"),
+        };
         Ok(Self {
             bind,
             database: env::var("SYNC_DATABASE")
@@ -75,6 +87,7 @@ impl Config {
             allowed_github_ids,
             public_access: mode == "public",
             require_https_proxy: development != "true",
+            usage_mode,
         })
     }
 }

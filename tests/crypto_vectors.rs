@@ -208,3 +208,104 @@ fn rustcrypto_matches_independent_argon2_and_libsodium_vectors() {
         assert!(decode(&snapshot.nonce, Some(12)).is_err());
     }
 }
+
+#[test]
+fn service_usage_aad_and_ciphertext_match_independent_vector() {
+    let vector: Value =
+        serde_json::from_str(include_str!("vectors/service-usage-v1.json")).unwrap();
+    let snapshot: openless_cloud_sync::usage::UsageSnapshot =
+        serde_json::from_value(vector["snapshot"].clone()).unwrap();
+    assert_eq!(snapshot.validate("12345").unwrap(), 65_552);
+    let normalized = vector["passwordInput"]
+        .as_str()
+        .unwrap()
+        .nfc()
+        .collect::<String>();
+    let argon = Argon2::new(
+        Algorithm::Argon2id,
+        Version::V0x13,
+        Params::new(65536, 3, 4, Some(32)).unwrap(),
+    );
+    let mut key = [0; 32];
+    let salt = decode(vector["salt"].as_str().unwrap(), Some(16)).unwrap();
+    argon
+        .hash_password_into(normalized.as_bytes(), &salt, &mut key)
+        .unwrap();
+    assert_eq!(
+        key.to_vec(),
+        unhex(vector["derivedKeyHex"].as_str().unwrap())
+    );
+    let aad = snapshot.aad();
+    assert_eq!(aad, unhex(vector["aadUtf8Hex"].as_str().unwrap()));
+    let nonce = decode(&snapshot.nonce, Some(24)).unwrap();
+    let nonce = XNonce::from_slice(&nonce);
+    let ciphertext = decode(&snapshot.ciphertext, None).unwrap();
+    let cipher = XChaCha20Poly1305::new_from_slice(&key).unwrap();
+    let plaintext = cipher
+        .decrypt(
+            nonce,
+            Payload {
+                msg: &ciphertext,
+                aad: &aad,
+            },
+        )
+        .unwrap();
+    assert_eq!(framed_json(&plaintext).unwrap(), vector["recoveredJson"]);
+    let json = unhex(vector["plaintextJsonUtf8Hex"].as_str().unwrap());
+    let mut expected = (json.len() as u32).to_be_bytes().to_vec();
+    expected.extend_from_slice(&json);
+    expected.extend((0..vector["padding"]["length"].as_u64().unwrap()).map(|i| (i % 251) as u8));
+    assert_eq!(plaintext, expected);
+    assert_eq!(
+        cipher
+            .encrypt(
+                nonce,
+                Payload {
+                    msg: &expected,
+                    aad: &aad
+                }
+            )
+            .unwrap(),
+        ciphertext
+    );
+    // A valid ciphertext cannot move to another account, scope, key epoch, or revision.
+    for (field, replacement) in [
+        ("ownerGithubId", "54321"),
+        ("vaultId", "ad8940b8-854c-4e37-9d74-77d01c5877e2"),
+        ("keyId", "ad8940b8-854c-4e37-9d74-77d01c5877e2"),
+        ("revision", "9007199254740994"),
+        ("baseRevision", "9007199254740993"),
+        ("operationId", "ad8940b8-854c-4e37-9d74-77d01c5877e2"),
+    ] {
+        let mut altered = vector["snapshot"].clone();
+        altered[field] = replacement.into();
+        let altered: openless_cloud_sync::usage::UsageSnapshot =
+            serde_json::from_value(altered).unwrap();
+        assert!(
+            cipher
+                .decrypt(
+                    nonce,
+                    Payload {
+                        msg: &ciphertext,
+                        aad: &altered.aad()
+                    }
+                )
+                .is_err(),
+            "AAD failed to bind {field}"
+        );
+    }
+    let mut other_domain: Value = serde_json::from_slice(&aad).unwrap();
+    other_domain[2] = "snapshot".into();
+    let other_domain = serde_json::to_vec(&other_domain).unwrap();
+    assert!(
+        cipher
+            .decrypt(
+                nonce,
+                Payload {
+                    msg: &ciphertext,
+                    aad: &other_domain
+                }
+            )
+            .is_err()
+    );
+}

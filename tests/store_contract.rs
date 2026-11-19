@@ -293,3 +293,71 @@ async fn rolling_rate_limit_and_retention_survive_restart() {
     );
     assert_eq!(store.metadata("11".into()).await.unwrap().revision, "1");
 }
+
+#[tokio::test]
+async fn v1_upgrade_is_atomic_and_keeps_live_snapshot_and_receipt() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("v1.db");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(include_str!("../migrations/001_initial.sql"))
+        .unwrap();
+    let old_body = sample("11");
+    let upload: Snapshot = serde_json::from_slice(&old_body).unwrap();
+    let metadata = Metadata {
+        protocol_version: 1,
+        state: "active".into(),
+        owner_github_id: "11".into(),
+        revision: "1".into(),
+        vault_id: Some(upload.vault_id.clone()),
+        key_id: Some(upload.key_id.clone()),
+        updated_at: Some("2026-09-23T00:00:00Z".into()),
+        payload_schema_version: Some(1),
+        ciphertext_bytes: 65_552,
+        ciphertext_sha256: Some(upload.ciphertext_sha256.clone()),
+        last_operation_id: Some(upload.operation_id.clone()),
+    };
+    db.execute(
+        "INSERT INTO vaults VALUES('11',?1,?2)",
+        rusqlite::params![serde_json::to_string(&metadata).unwrap(), old_body],
+    )
+    .unwrap();
+    let receipt = json!({"operationId":upload.operation_id,"status":"committed","kind":"create","committedRevision":"1","committedAt":"2026-09-23T00:00:00Z","vaultId":upload.vault_id,"ciphertextSha256":upload.ciphertext_sha256});
+    db.execute(
+        "INSERT INTO operations VALUES('11',?1,'fixture',?2,?3)",
+        rusqlite::params![
+            upload.operation_id,
+            receipt.to_string(),
+            chrono::Utc::now().timestamp()
+        ],
+    )
+    .unwrap();
+    db.execute_batch("CREATE INDEX service_usage_operations_expiry ON operations(owner);")
+        .unwrap();
+    assert!(Store::open(&path).is_err());
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(db.query_row("SELECT count(*) FROM sqlite_master WHERE name IN ('service_usage','service_usage_operations')", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    db.execute_batch("DROP INDEX service_usage_operations_expiry;")
+        .unwrap();
+    let migrated = Store::open(&path).unwrap();
+    assert_eq!(
+        db.query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        migrated
+            .download("11".into(), metadata.etag())
+            .await
+            .unwrap(),
+        old_body
+    );
+    let after = migrated
+        .operation("11".into(), upload.operation_id)
+        .await
+        .unwrap();
+    assert_eq!(serde_json::to_value(after).unwrap(), receipt);
+}

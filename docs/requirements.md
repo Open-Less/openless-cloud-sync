@@ -1,5 +1,7 @@
 # 加密云同步需求
 
+Unreleased additive scope and release gates: [Encrypted service Usage sidecar](service-usage.md). Service Usage is not V1 Activity; neither server aggregation nor plaintext upload is allowed.
+
 状态：产品需求合同；版本 `1.0-draft.1`；更新：2026-09-23。服务端 `0.1.0` 已实现，验证及未完成事项见 [服务端验收](server-acceptance.md)；客户端要求仍需应用实现。接口见 [文档入口](index.md)。
 
 ## 1. 目标与不可混淆的概念
