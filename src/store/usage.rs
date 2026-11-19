@@ -3,13 +3,13 @@ use super::{
     remember_nonce, replay, state_conflict, to_db, write_operation, write_vault,
 };
 use crate::{
+    clock,
     config::UsageMode,
     error::{ApiError, Result},
     protocol::{self, Metadata, Receipt, UploadKind},
     usage::{self, Rotation, RotationReceipt, UsageMetadata, UsageSnapshot, UsageState},
 };
 use axum::http::StatusCode;
-use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 
 impl Store {
@@ -54,8 +54,8 @@ impl Store {
             }
             let fingerprint = request.fingerprint();
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let now = Utc::now();
-            if let Some(prior) = replay(&tx, &request, &fingerprint, now.timestamp())? {
+            let now = clock::now();
+            if let Some(prior) = replay(&tx, &request, &fingerprint, now)? {
                 return Ok((prior.usage.ok_or_else(ApiError::unavailable)?, true));
             }
             if mode == UsageMode::Rescue {
@@ -80,7 +80,7 @@ impl Store {
                 return Err(ApiError::conflict("key_epoch_changed", &old.revision));
             }
             check_usage_cas(&old, tag, &upload.base_revision)?;
-            let timestamp = now.to_rfc3339_opts(SecondsFormat::Secs, true);
+            let timestamp = clock::wire_timestamp(now)?;
             let receipt = write_usage(
                 &tx,
                 &upload,
@@ -95,7 +95,7 @@ impl Store {
                 &request.owner,
                 &fingerprint,
                 &receipt,
-                now.timestamp(),
+                now,
             )?;
             tx.commit()?;
             Ok((receipt, false))
@@ -110,8 +110,8 @@ impl Store {
             }
             let fingerprint = request.fingerprint();
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let now = Utc::now();
-            if let Some(prior) = replay(&tx, &request, &fingerprint, now.timestamp())? {
+            let now = clock::now();
+            if let Some(prior) = replay(&tx, &request, &fingerprint, now)? {
                 let vault_receipt = prior.vault.ok_or_else(ApiError::unavailable)?;
                 let usage_receipt = prior.usage.ok_or_else(ApiError::unavailable)?;
                 return Ok((
@@ -137,7 +137,7 @@ impl Store {
             }
             let size = usage_upload.validate(&request.owner)?;
             let old = read_metadata(&tx, &request.owner)?;
-            let timestamp = now.to_rfc3339_opts(SecondsFormat::Secs, true);
+            let timestamp = clock::wire_timestamp(now)?;
             // V1 validation and nonce reservation share a transaction with Usage CAS and data.
             let (meta, vault_receipt) =
                 prepare_vault_upload(&tx, &request, &old, tag, &upload, &timestamp, true)?;
@@ -161,7 +161,7 @@ impl Store {
                 &request.owner,
                 &fingerprint,
                 &vault_receipt,
-                now.timestamp(),
+                now,
             )?;
             write_operation(
                 &tx,
@@ -169,7 +169,7 @@ impl Store {
                 &request.owner,
                 &fingerprint,
                 &usage_receipt,
-                now.timestamp(),
+                now,
             )?;
             tx.commit()?;
             Ok((

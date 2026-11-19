@@ -1,4 +1,5 @@
 use crate::{
+    clock,
     error::{ApiError, Result},
     protocol,
     store::Store,
@@ -85,9 +86,8 @@ impl GithubVerifier {
             return Err(ApiError::unavailable());
         }
         if let Some(expires) = checked.expires_at {
-            let expires = chrono::DateTime::parse_from_rfc3339(&expires)
-                .map_err(|_| ApiError::unavailable())?;
-            if expires.timestamp() <= chrono::Utc::now().timestamp() {
+            let expires = clock::parse_rfc3339(&expires)?;
+            if expires <= clock::now() {
                 return Err(ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated"));
             }
         }
@@ -128,7 +128,7 @@ pub async fn session(store: &Store, account: Account) -> Result<serde_json::Valu
         .issue_session(
             account.github_id.clone(),
             protocol::hash(token.as_bytes()),
-            chrono::Utc::now().timestamp() + 900,
+            clock::now() + 900,
         )
         .await?;
     Ok(

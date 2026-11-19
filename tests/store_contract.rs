@@ -273,7 +273,7 @@ async fn rolling_rate_limit_and_retention_survive_restart() {
     let db = rusqlite::Connection::open(&path).unwrap();
     db.execute(
         "UPDATE operations SET committed_at=?1",
-        [chrono::Utc::now().timestamp() - 604801],
+        [time::OffsetDateTime::now_utc().unix_timestamp() - 604801],
     )
     .unwrap();
     assert_eq!(
@@ -327,7 +327,7 @@ async fn v1_upgrade_is_atomic_and_keeps_live_snapshot_and_receipt() {
         rusqlite::params![
             upload.operation_id,
             receipt.to_string(),
-            chrono::Utc::now().timestamp()
+            time::OffsetDateTime::now_utc().unix_timestamp()
         ],
     )
     .unwrap();

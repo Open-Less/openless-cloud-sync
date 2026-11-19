@@ -1,5 +1,6 @@
 use crate::{
     auth::{self, IdentityVerifier},
+    clock,
     config::Config,
     error::{ApiError, Result},
     protocol,
@@ -138,7 +139,7 @@ async fn handle(state: &AppState, request: Request) -> Result<Response> {
     } else {
         peer
     };
-    let now = chrono::Utc::now().timestamp();
+    let now = clock::now();
     if method == Method::OPTIONS {
         if origin.is_none() {
             return Err(ApiError::invalid());

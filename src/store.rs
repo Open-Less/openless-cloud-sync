@@ -1,11 +1,11 @@
 mod usage;
 
 use crate::{
+    clock,
     error::{ApiError, Result},
     protocol::{self, DeleteRequest, Metadata, Receipt, Snapshot, UploadKind},
 };
 use axum::http::StatusCode;
-use chrono::{SecondsFormat, Utc};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::{
     path::Path,
@@ -150,13 +150,13 @@ impl Store {
             protocol::uuid(&request.operation_id)?;
             let fingerprint = request.fingerprint();
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let now = Utc::now();
-            if let Some(prior) = replay(&tx, &request, &fingerprint, now.timestamp())? {
+            let now = clock::now();
+            if let Some(prior) = replay(&tx, &request, &fingerprint, now)? {
                 return Ok((prior.vault.ok_or_else(ApiError::unavailable)?, true));
             }
             let tag = protocol::etag(request.if_match.as_deref())?;
             let old = read_metadata(&tx, &request.owner)?;
-            let timestamp = now.to_rfc3339_opts(SecondsFormat::Secs, true);
+            let timestamp = clock::wire_timestamp(now)?;
             let (meta, receipt, snapshot) = match (request.method.as_str(), request.path.as_str()) {
                 ("PUT", "/v1/me/vault/snapshot") => {
                     let upload: Snapshot =
@@ -225,7 +225,7 @@ impl Store {
                 &request.owner,
                 &fingerprint,
                 &receipt,
-                now.timestamp(),
+                now,
             )?;
             tx.commit()?;
             Ok((receipt, false))
@@ -259,7 +259,7 @@ impl Store {
                 )
                 .optional()?;
             match row {
-                Some((owner, expires)) if expires > Utc::now().timestamp() => Ok(owner),
+                Some((owner, expires)) if expires > clock::now() => Ok(owner),
                 Some(_) => Err(ApiError::new(StatusCode::UNAUTHORIZED, "session_expired")),
                 None => Err(ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated")),
             }
@@ -271,7 +271,7 @@ impl Store {
         self.run(move |db| {
             let changed = db.execute(
                 "DELETE FROM sessions WHERE token_hash=?1 AND expires_at>?2",
-                params![token_hash, Utc::now().timestamp()],
+                params![token_hash, clock::now()],
             )?;
             if changed != 1 {
                 return Err(ApiError::new(StatusCode::UNAUTHORIZED, "unauthenticated"));
@@ -314,7 +314,7 @@ impl Store {
     pub async fn maintain(&self) -> Result<()> {
         self.run(|db| {
             let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-            let now = Utc::now().timestamp();
+            let now = clock::now();
             tx.execute(
                 "DELETE FROM operations WHERE committed_at<?1",
                 [now - protocol::RETENTION],
@@ -531,7 +531,7 @@ fn read_operation(
 }
 
 fn operation(db: &Connection, route: OperationRoute, owner: &str, id: &str) -> Result<Receipt> {
-    match read_operation(db, route, owner, id, Utc::now().timestamp())? {
+    match read_operation(db, route, owner, id, clock::now())? {
         Some((_, receipt)) => from_db(&receipt),
         None => Err(ApiError::new(StatusCode::NOT_FOUND, "operation_not_found")),
     }

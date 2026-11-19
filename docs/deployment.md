@@ -4,7 +4,7 @@
 
 ## 部署输入
 
-- Ubuntu/Debian 主机，root 或有等效安装权限的 SSH 账号；已安装 Git、Rust ≥ 1.88、C 编译器、CMake、nginx、Python 3、CA 证书。
+- Ubuntu/Debian 主机，root 或有等效安装权限的 SSH 账号；已安装 Git、Rust ≥ 1.89、C 编译器、CMake、nginx、Python 3、CA 证书。
 - 独立同步 HTTPS origin 及其有效 TLS 证书、私钥路径；可以是独立子域名，或现有域名的独立 HTTPS 端口。DNS 指向目标主机，配置的 TLS 端口可达。客户端使用 HTTPS origin，不带旧服务的 `/me/sync` 路径。
 - 复用现有 OpenLess GitHub OAuth App 和设备登录态，仅使用身份 scope；client secret 仅进入服务器配置，客户端凭据库继续保存已有 GitHub 登录令牌。
 - 用于逐项测试的 GitHub numeric ID。默认 restricted 模式；空白名单关闭登录。

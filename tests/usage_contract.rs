@@ -163,7 +163,7 @@ async fn competing_usage_writers_and_lost_ack_are_not_double_commits() {
     let db = Connection::open(f.dir.path().join("sync.db")).unwrap();
     db.execute(
         "UPDATE service_usage_operations SET committed_at=?1",
-        [chrono::Utc::now().timestamp() - 604801],
+        [time::OffsetDateTime::now_utc().unix_timestamp() - 604801],
     )
     .unwrap();
     f.store.maintain().await.unwrap();
